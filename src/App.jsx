@@ -312,6 +312,7 @@ export default function CloudReportDashboard() {
   const [searchTerm, setSearchTerm] = useState('');
   const [planFilter, setPlanFilter] = useState('all');
   const [checklist, setChecklist] = useState({});
+  const [timelineWindow, setTimelineWindow] = useState('30');
   const [guestNotes, setGuestNotes] = useState({});
 
   // Fetch live data from Google Sheets
@@ -481,6 +482,46 @@ export default function CloudReportDashboard() {
     cumulative += stats.byDate[d];
     return { date: d.slice(5), total: cumulative };
   });
+
+  // ─── Smart timeline: only days with orders, windowed, peaks guaranteed ───
+  const timelineData = (() => {
+    if (!stats || sortedDates.length === 0) return [];
+
+    // Find peak day (always shown)
+    let peakDate = sortedDates[0];
+    sortedDates.forEach(d => {
+      if (stats.byDate[d] > stats.byDate[peakDate]) peakDate = d;
+    });
+
+    // Today string (YYYY-MM-DD)
+    const today = new Date().toISOString().split('T')[0];
+
+    // Determine cutoff date based on window
+    let cutoff = null;
+    if (timelineWindow !== 'all') {
+      const days = parseInt(timelineWindow, 10);
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - days);
+      cutoff = cutoffDate.toISOString().split('T')[0];
+    }
+
+    // Filter: within window OR is the peak day
+    const filtered = sortedDates.filter(d => {
+      if (d === peakDate) return true;       // always keep peak
+      if (!cutoff) return true;              // "all" mode
+      return d >= cutoff;                    // within window
+    });
+
+    return filtered.map(d => ({
+      date: d.slice(5),
+      fullDate: d,
+      orders: stats.byDate[d],
+      isPeak: d === peakDate,
+      isToday: d === today
+    }));
+  })();
+
+  // Legacy dailyData kept for overview if needed
   const dailyData = sortedDates.map(d => ({ date: d.slice(5), orders: stats.byDate[d] }));
 
   const countryData = stats ? Object.entries(stats.countries)
@@ -782,16 +823,113 @@ export default function CloudReportDashboard() {
       {/* ═══════════ TIMELINE ═══════════ */}
       {activeTab === 'timeline' && (
         <div>
+          {/* Time window selector */}
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontSize: '11px', color: C.gray, textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 'bold' }}>Show:</span>
+            {[
+              { value: '7', label: 'Last 7 days' },
+              { value: '14', label: 'Last 14 days' },
+              { value: '30', label: 'Last 30 days' },
+              { value: '60', label: 'Last 60 days' },
+              { value: 'all', label: 'All time' }
+            ].map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => setTimelineWindow(opt.value)}
+                style={{
+                  padding: '6px 14px',
+                  border: `2px solid ${timelineWindow === opt.value ? C.orange : C.lightGray}`,
+                  background: timelineWindow === opt.value ? C.orange : 'white',
+                  color: timelineWindow === opt.value ? 'white' : C.black,
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  fontSize: '11px',
+                  fontWeight: 'bold',
+                  borderRadius: '4px'
+                }}
+              >{opt.label}</button>
+            ))}
+            <span style={{ fontSize: '11px', color: C.gray, marginLeft: '8px' }}>
+              {timelineData.length} days with orders
+              {timelineWindow !== 'all' && timelineData.some(d => d.isPeak) && !timelineData.every(d => !d.isPeak) ? ' (★ = peak day always shown)' : ''}
+            </span>
+          </div>
+
           <Card title="Daily New Subscribers" borderColor={C.orange}>
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={dailyData}>
-                <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={timelineData}>
+                <XAxis dataKey="date" tick={{ fontSize: 10 }} interval={timelineData.length > 40 ? Math.floor(timelineData.length / 30) : 0} />
                 <YAxis tick={{ fontSize: 10 }} />
-                <Tooltip />
-                <Bar dataKey="orders" fill={C.orange} radius={[4, 4, 0, 0]} />
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (active && payload && payload.length) {
+                      const d = payload[0].payload;
+                      return (
+                        <div style={{
+                          background: 'white', padding: '10px', border: `2px solid ${C.orange}`,
+                          borderRadius: '4px', fontFamily: 'inherit', fontSize: '12px'
+                        }}>
+                          <div style={{ fontWeight: 'bold' }}>{d.fullDate}</div>
+                          <div style={{ fontSize: '18px', fontWeight: 'bold', color: C.orange }}>{d.orders} orders</div>
+                          {d.isPeak && <div style={{ color: C.pink, fontWeight: 'bold' }}>★ Peak day</div>}
+                          {d.isToday && <div style={{ color: C.green, fontWeight: 'bold' }}>● Today</div>}
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
+                />
+                <Bar
+                  dataKey="orders"
+                  radius={[4, 4, 0, 0]}
+                  fill={C.orange}
+                  // Color-code: peak = pink, today = green, normal = orange
+                  shape={(props) => {
+                    const { x, y, width, height, payload } = props;
+                    let fill = C.orange;
+                    if (payload.isPeak) fill = C.pink;
+                    if (payload.isToday) fill = C.green;
+                    return <rect x={x} y={y} width={width} height={height} fill={fill} rx={4} ry={4} />;
+                  }}
+                />
               </BarChart>
             </ResponsiveContainer>
+            {/* Legend */}
+            <div style={{ display: 'flex', gap: '16px', marginTop: '8px', justifyContent: 'center', fontSize: '11px' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ width: '12px', height: '12px', background: C.pink, borderRadius: '2px', display: 'inline-block' }}></span>
+                Peak day
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ width: '12px', height: '12px', background: C.green, borderRadius: '2px', display: 'inline-block' }}></span>
+                Today
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ width: '12px', height: '12px', background: C.orange, borderRadius: '2px', display: 'inline-block' }}></span>
+                Other days
+              </span>
+            </div>
           </Card>
+
+          {/* Stats row below chart */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px', marginTop: '16px' }}>
+            {(() => {
+              const peak = sortedDates.reduce((best, d) => stats.byDate[d] > (best.count || 0) ? { date: d, count: stats.byDate[d] } : best, {});
+              const today = new Date().toISOString().split('T')[0];
+              const todayCount = stats.byDate[today] || 0;
+              const last7 = sortedDates.filter(d => d >= new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0]);
+              const last7Total = last7.reduce((sum, d) => sum + stats.byDate[d], 0);
+              return (
+                <>
+                  <Metric label="Today" value={todayCount} color={C.green} />
+                  <Metric label="Last 7 Days" value={last7Total} color={C.blue} />
+                  <Metric label="Peak Day" value={peak.count || 0} color={C.pink} detail={peak.date || ''} />
+                  <Metric label="Total Days Active" value={sortedDates.length} color={C.gray} />
+                </>
+              );
+            })()}
+          </div>
+
           {/* Spike callout if any single day > 100 */}
           {(() => {
             const peak = sortedDates.reduce((best, d) => stats.byDate[d] > (best.count || 0) ? { date: d, count: stats.byDate[d] } : best, {});
