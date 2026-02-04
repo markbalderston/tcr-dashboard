@@ -47,7 +47,7 @@ const FALLBACK_GUEST_LIST = [
 // ═══════════════════════════════════════════════════════════════════════════════
 const SHEET_ID = '1nJaA78lQ2JnbLdVpRalnTFHEj3yMjDlYH6-f-5uP5OE';
 const SUBSCRIBERS_GID = '1234159284';
-const GUEST_LIST_GID = '0'; // Default first tab — update if guest list is on a different tab
+const GUEST_LIST_GID = '1982508270'; // guest_list tab
 
 const MASTER_SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit?gid=${SUBSCRIBERS_GID}`;
 
@@ -333,10 +333,9 @@ function processGuestCSV(csvText) {
       return name.trim().length > 0;
     })
     .map((row, i) => ({
-      id: i + 1,
+      id: row.id || (i + 1),
       name: (row.name || row.Name || row.recipient || row.Recipient || '').trim(),
-      address: (row.address1 || row.address || row.Address || row.street || '').trim(),
-      address2: (row.address2 || row.Address2 || row.apt || '').trim(),
+      address: [(row.address1 || row.address || row.Address || '').trim(), (row.address2 || row.Address2 || '').trim()].filter(Boolean).join(', '),
       city: (row.city || row.City || '').trim(),
       state: (row.state || row.State || '').trim(),
       zip: (row.zip || row.Zip || row.postal_code || '').trim(),
