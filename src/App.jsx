@@ -138,11 +138,21 @@ function processCSV(csvText) {
     throw new Error('Could not parse CSV: ' + result.errors[0].message);
   }
 
-  // Clean rows
+  // Clean rows — normalize plan column → subscription_type
+  // Sheet column is "plan" with values like "Monthly", "The Cloud Report - Monthly",
+  // "The Cloud Report - Annual", or multi-product combos containing those.
+  const normalizePlan = (row) => {
+    const raw = (row.plan || row.subscription_type || '').toLowerCase();
+    if (raw.includes('annual')) return 'Annual';
+    if (raw.includes('monthly')) return 'Monthly';
+    return 'Other';
+  };
+
   const allRows = result.data
     .filter(row => row.order_id && row.name)
     .map(row => ({
       ...row,
+      subscription_type: normalizePlan(row),
       city: toTitleCase(row.city),
       address1: toTitleCase(row.address1),
       address2: toTitleCase(row.address2),
