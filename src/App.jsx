@@ -14,9 +14,9 @@ const C = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// GUEST LIST (hardcoded — these don't come from the Squarespace CSV)
+// FALLBACK GUEST LIST (used if Google Sheet guest tab fetch fails)
 // ═══════════════════════════════════════════════════════════════════════════════
-const GUEST_LIST = [
+const FALLBACK_GUEST_LIST = [
   { id: 1, name: 'Jon Adams-Kollitz', address: '991 Pine St', city: 'Burlington', state: 'VT', zip: '05401' },
   { id: 2, name: 'Tabitha Tice', address: '695 W 11th Ave., Apt. 3', city: 'Eugene', state: 'OR', zip: '97402' },
   { id: 3, name: 'Jacob Mushlin & MC McGovern', address: '157 Chapman Ln', city: 'Williston', state: 'VT', zip: '05495' },
@@ -41,9 +41,15 @@ const GUEST_LIST = [
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// MASTER SHEET LINK
+// MASTER SHEET CONNECTION
+// Sheet: "TCR Operations - Master"
+// ID: 1nJaA78lQ2JnbLdVpRalnTFHEj3yMjDlYH6-f-5uP5OE
 // ═══════════════════════════════════════════════════════════════════════════════
-const MASTER_SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vR8HrrxvexRX0LqWKF6oweH5M5EvjsQ03rKlSVmGWD7Z1ptOl5M2lKXUFuQEIzytHC_GA0NrfPrkYge/pubhtml';
+const SHEET_ID = '1nJaA78lQ2JnbLdVpRalnTFHEj3yMjDlYH6-f-5uP5OE';
+const SUBSCRIBERS_GID = '1234159284';
+const GUEST_LIST_GID = '0'; // Default first tab — update if guest list is on a different tab
+
+const MASTER_SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit?gid=${SUBSCRIBERS_GID}`;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // PRICING — Annual changed from 20% off ($76.80/yr) to 15% off ($81.60/yr) on ~Jan 20
@@ -104,8 +110,8 @@ const FALLBACK_STATS = {
   sheetFlaggedDupes: 0,
   duplicatesRemoved: 0,
   duplicateList: [],
-  guestListCount: GUEST_LIST.length,
-  totalMailingList: 1033 + GUEST_LIST.length - 1,
+  guestListCount: FALLBACK_GUEST_LIST.length,
+  totalMailingList: 1033 + FALLBACK_GUEST_LIST.length - 1,
   lastUpdated: null,
   isFallback: true
 };
@@ -132,7 +138,7 @@ function getSubDate(row) {
   return '';
 }
 
-function processCSV(csvText) {
+function processCSV(csvText, guestCount = FALLBACK_GUEST_LIST.length) {
   const result = Papa.parse(csvText, { header: true, skipEmptyLines: true });
   if (result.errors.length > 0 && result.data.length === 0) {
     throw new Error('Could not parse CSV: ' + result.errors[0].message);
@@ -298,8 +304,8 @@ function processCSV(csvText) {
       sheetFlaggedDupes: sheetFlaggedDupes.length,
       duplicatesRemoved: duplicates.length,
       duplicateList: duplicates,
-      guestListCount: GUEST_LIST.length,
-      totalMailingList: active.length + GUEST_LIST.length - 1, // Sophie Cassel overlap
+      guestListCount: guestCount,
+      totalMailingList: active.length + guestCount - 1, // Sophie Cassel overlap
       lastUpdated: new Date().toISOString()
     },
     subscribers: active
@@ -310,7 +316,34 @@ function processCSV(csvText) {
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vR8HrrxvexRX0LqWKF6oweH5M5EvjsQ03rKlSVmGWD7Z1ptOl5M2lKXUFuQEIzytHC_GA0NrfPrkYge/pub?output=csv';
+// CSV URLs — gviz format works for publicly shared sheets (no "publish to web" needed)
+const SUBSCRIBERS_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=${SUBSCRIBERS_GID}`;
+const GUEST_LIST_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=${GUEST_LIST_GID}`;
+
+// Process guest list CSV from sheet
+function processGuestCSV(csvText) {
+  const result = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+  if (!result.data || result.data.length === 0) return null;
+  
+  // Flexible column matching — handles variations in column names
+  return result.data
+    .filter(row => {
+      // Need at least a name
+      const name = row.name || row.Name || row.recipient || row.Recipient || '';
+      return name.trim().length > 0;
+    })
+    .map((row, i) => ({
+      id: i + 1,
+      name: (row.name || row.Name || row.recipient || row.Recipient || '').trim(),
+      address: (row.address1 || row.address || row.Address || row.street || '').trim(),
+      address2: (row.address2 || row.Address2 || row.apt || '').trim(),
+      city: (row.city || row.City || '').trim(),
+      state: (row.state || row.State || '').trim(),
+      zip: (row.zip || row.Zip || row.postal_code || '').trim(),
+      country: (row.country || row.Country || 'United States').trim(),
+      note: (row.notes || row.note || row.Notes || '').trim() || undefined
+    }));
+}
 
 export default function CloudReportDashboard() {
   const [loading, setLoading] = useState(true);
@@ -318,6 +351,7 @@ export default function CloudReportDashboard() {
   const [error, setError] = useState('');
   const [stats, setStats] = useState(null);
   const [subscribers, setSubscribers] = useState([]);
+  const [guestList, setGuestList] = useState(FALLBACK_GUEST_LIST);
   const [activeTab, setActiveTab] = useState('overview');
   const [searchTerm, setSearchTerm] = useState('');
   const [planFilter, setPlanFilter] = useState('all');
@@ -325,18 +359,38 @@ export default function CloudReportDashboard() {
   const [timelineWindow, setTimelineWindow] = useState('30');
   const [guestNotes, setGuestNotes] = useState({});
 
-  // Fetch live data from Google Sheets
+  // Fetch live data from Google Sheets (both subscribers and guest list tabs)
   const fetchData = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
     setError('');
     try {
-      const response = await fetch(SHEET_CSV_URL);
-      if (!response.ok) throw new Error(`Failed to fetch sheet (${response.status})`);
-      const csvText = await response.text();
-      const result = processCSV(csvText);
+      // Fetch subscribers and guest list in parallel
+      const [subResponse, guestResponse] = await Promise.allSettled([
+        fetch(SUBSCRIBERS_CSV_URL),
+        fetch(GUEST_LIST_CSV_URL)
+      ]);
+
+      // Process guest list (try sheet first, fall back to hardcoded)
+      let liveGuests = FALLBACK_GUEST_LIST;
+      if (guestResponse.status === 'fulfilled' && guestResponse.value.ok) {
+        const guestCSV = await guestResponse.value.text();
+        const parsed = processGuestCSV(guestCSV);
+        if (parsed && parsed.length > 0) {
+          liveGuests = parsed;
+        }
+      }
+      setGuestList(liveGuests);
+
+      // Process subscribers (required — throw if fails)
+      if (subResponse.status !== 'fulfilled' || !subResponse.value.ok) {
+        const status = subResponse.status === 'fulfilled' ? subResponse.value.status : 'network error';
+        throw new Error(`Failed to fetch subscriber sheet (${status})`);
+      }
+      const csvText = await subResponse.value.text();
+      const result = processCSV(csvText, liveGuests.length);
       setStats(result.stats);
       setSubscribers(result.subscribers);
-      try { await window.storage?.set('tcr-v8-data', JSON.stringify(result)); } catch (e) {}
+      try { await window.storage?.set('tcr-v8-data', JSON.stringify({ ...result, guestList: liveGuests })); } catch (e) {}
     } catch (e) {
       // Fall back to cached data if available
       try {
@@ -345,18 +399,21 @@ export default function CloudReportDashboard() {
           const data = JSON.parse(cached.value);
           setStats(data.stats);
           setSubscribers(data.subscribers);
+          if (data.guestList) setGuestList(data.guestList);
           setError('Using cached data — live fetch failed: ' + e.message);
         } else {
           // No cache — use embedded fallback data
           setStats(FALLBACK_STATS);
           setSubscribers([]);
-          setError('Preview mode — using sample data from Jan 2026. Deploy to Vercel for live Google Sheets connection.');
+          setGuestList(FALLBACK_GUEST_LIST);
+          setError('Preview mode — could not fetch Google Sheet. Check sharing settings (must be "Anyone with the link" can view). Error: ' + e.message);
         }
       } catch (e2) {
         // Even cache read failed — use fallback
         setStats(FALLBACK_STATS);
         setSubscribers([]);
-        setError('Preview mode — using sample data from Jan 2026. Deploy to Vercel for live Google Sheets connection.');
+        setGuestList(FALLBACK_GUEST_LIST);
+        setError('Preview mode — using fallback data. Error: ' + e.message);
       }
     } finally {
       setLoading(false);
@@ -411,7 +468,7 @@ export default function CloudReportDashboard() {
     return match && planMatch;
   });
 
-  const filteredGuests = GUEST_LIST.filter(g => {
+  const filteredGuests = guestList.filter(g => {
     if (!searchTerm) return true;
     const term = searchTerm.toLowerCase();
     return g.name.toLowerCase().includes(term) || g.city.toLowerCase().includes(term);
@@ -553,7 +610,7 @@ export default function CloudReportDashboard() {
     { key: 'issues', label: `Review address issues — ${stats?.problems || 0} flagged` },
     { key: 'intl', label: `Verify international addresses (${stats?.intlCount || 0} int'l subscribers)` },
     { key: 'cancelled', label: `Confirm cancelled subscribers removed — ${stats?.cancelled || 0} cancellations` },
-    { key: 'guests', label: `Verify guest list is current (${GUEST_LIST.length} recipients)` },
+    { key: 'guests', label: `Verify guest list is current (${guestList.length} recipients)` },
     { key: 'labels', label: 'Generate and print US labels' },
     { key: 'labels_intl', label: 'Generate and print international labels' },
     { key: 'labels_guests', label: 'Generate and print guest list labels' },
@@ -614,7 +671,7 @@ export default function CloudReportDashboard() {
 
       {/* Key Metrics Row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px', marginBottom: '24px' }}>
-        <Metric label="Mailing List" value={stats.totalMailingList} color={C.blue} detail={`${stats.total} paid + ${GUEST_LIST.length} guests`} />
+        <Metric label="Mailing List" value={stats.totalMailingList} color={C.blue} detail={`${stats.total} paid + ${guestList.length} guests`} />
         <Metric label="MRR" value={`$${stats.mrr.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} color={C.green}
           detail={`${stats.monthly}×$8 + ${stats.annualOldRate || 0}×$6.40 + ${stats.annualNewRate || 0}×$6.80`}
         />
@@ -771,11 +828,11 @@ export default function CloudReportDashboard() {
       {/* ═══════════ GUEST LIST ═══════════ */}
       {activeTab === 'guests' && (
         <div>
-          <Card title={`🎁 Guest List — ${GUEST_LIST.length} recipients`} borderColor={C.purple}>
+          <Card title={`🎁 Guest List — ${guestList.length} recipients`} borderColor={C.purple}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '12px', marginBottom: '16px' }}>
-              <MiniStat label="Total" value={GUEST_LIST.length} color={C.purple} />
-              <MiniStat label="Vermont" value={GUEST_LIST.filter(g => g.state === 'VT').length} color={C.teal} />
-              <MiniStat label="Other States" value={GUEST_LIST.filter(g => g.state !== 'VT').length} color={C.orange} />
+              <MiniStat label="Total" value={guestList.length} color={C.purple} />
+              <MiniStat label="Vermont" value={guestList.filter(g => g.state === 'VT').length} color={C.teal} />
+              <MiniStat label="Other States" value={guestList.filter(g => g.state !== 'VT').length} color={C.orange} />
               <MiniStat label="Also Paid" value={1} color={C.pink} />
             </div>
           </Card>
@@ -1161,11 +1218,11 @@ export default function CloudReportDashboard() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px' }}>
               <MiniStat label="US Subscribers" value={stats.usCount} color={C.blue} />
               <MiniStat label="Int'l Subscribers" value={stats.intlCount} color={C.teal} />
-              <MiniStat label="Guest List" value={GUEST_LIST.length} color={C.purple} />
+              <MiniStat label="Guest List" value={guestList.length} color={C.purple} />
               <MiniStat label="Total Labels" value={stats.totalMailingList} color={C.green} />
             </div>
             <p style={{ fontSize: '10px', color: C.gray, marginTop: '10px' }}>
-              Total = {stats.total} paid + {GUEST_LIST.length} guests − 1 overlap (Sophie Cassel) = {stats.totalMailingList}
+              Total = {stats.total} paid + {guestList.length} guests − 1 overlap (Sophie Cassel) = {stats.totalMailingList}
             </p>
           </Card>
         </div>
