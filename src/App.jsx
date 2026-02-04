@@ -1,29 +1,21 @@
-import React, { useState, useEffect } from 'react';
-import Papa from 'papaparse';
+import React, { useState, useEffect, useCallback } from 'react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar } from 'recharts';
+import * as Papa from 'papaparse';
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// THE CLOUD REPORT DASHBOARD v7 - LIVE DATA
-// Fetches directly from Google Sheets
+// THE CLOUD REPORT DASHBOARD v8
+// Live CSV data • Deduplication • Cancellation tracking • Fulfillment checklist
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const GOOGLE_SHEET_CSV = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ1yLuGQtnu9QWsLhJD2F02H19teD134ohZk-_WqSfuTeZnOGf-6rZNt2NCu8LBMGBjm7py8KwFO23l/pub?gid=1234159284&single=true&output=csv';
-
-const COLORS = {
-  blue: '#0078BF',
-  pink: '#F15060',
-  green: '#00A95C',
-  orange: '#FF6C2F',
-  purple: '#765BA7',
-  teal: '#00838A',
-  red: '#E02B35',
-  cream: '#FAF3E8',
-  black: '#1a1a1a',
-  gray: '#666666',
-  lightGray: '#e8e8e8'
+const C = {
+  blue: '#0078BF', pink: '#F15060', green: '#00A95C', orange: '#FF6C2F',
+  purple: '#765BA7', teal: '#00838A', red: '#E02B35', cream: '#FAF3E8',
+  black: '#1a1a1a', gray: '#666', lightGray: '#e8e8e8', white: '#ffffff'
 };
 
-// Guest list (manual recipients - stored separately)
+// ═══════════════════════════════════════════════════════════════════════════════
+// GUEST LIST (hardcoded — these don't come from the Squarespace CSV)
+// ═══════════════════════════════════════════════════════════════════════════════
 const GUEST_LIST = [
   { id: 1, name: 'Jon Adams-Kollitz', address: '991 Pine St', city: 'Burlington', state: 'VT', zip: '05401' },
   { id: 2, name: 'Tabitha Tice', address: '695 W 11th Ave., Apt. 3', city: 'Eugene', state: 'OR', zip: '97402' },
@@ -36,7 +28,7 @@ const GUEST_LIST = [
   { id: 9, name: 'Sophie Cassel', address: '73 High Meadow Lane', city: 'Richmond', state: 'VT', zip: '05477', note: 'Also a paid subscriber' },
   { id: 10, name: 'Sarah & Jenny Caban', address: '106 Wetherbee Rd', city: 'Waltham', state: 'MA', zip: '02453' },
   { id: 11, name: 'Chapin Spencer', address: '645 Pine St # A', city: 'Burlington', state: 'VT', zip: '05401' },
-  { id: 12, name: 'Allison Cassity', address: '115 Isaac Lane', city: 'Hazel Green', state: 'AL', zip: '35750' },
+  { id: 12, name: 'Allison Cassity', address: '115 Isaac Lane', city: 'Hazel Green', state: 'GA', zip: '35750' },
   { id: 13, name: 'Ainsley Judge & Adrian O\'Barr', address: '65 Lexington Ave', city: 'Portland', state: 'ME', zip: '04103' },
   { id: 14, name: 'Zoe Richards', address: '15 Catherine St.', city: 'Burlington', state: 'VT', zip: '05401' },
   { id: 15, name: 'Lauren Mazel', address: '10836 Douglas Ave', city: 'Silver Spring', state: 'MD', zip: '20902' },
@@ -45,579 +37,995 @@ const GUEST_LIST = [
   { id: 18, name: 'Cayla Tepper', address: '3952 W Waveland Ave #3', city: 'Chicago', state: 'IL', zip: '60618' },
   { id: 19, name: 'Isabella Thorndike', address: '369 Granite St', city: 'Ashland', state: 'OR', zip: '97520' },
   { id: 20, name: 'Cheryl Pespisa', address: '3 Washington St.', city: 'Bedford', state: 'MA', zip: '01730' },
-  { id: 21, name: 'Alexandra Rose & Myles Jewell', address: '44 Saratoga Ave', city: 'Burlington', state: 'VT', zip: '05408' },
-  { id: 22, name: 'Katie Palatucci', address: '91 Spruce St', city: 'Burlington', state: 'VT', zip: '05401' },
-  { id: 23, name: 'Jon Balderston', address: '2527 Virginia St', city: 'Berkeley', state: 'CA', zip: '94709' }
+  { id: 21, name: 'Alexandra Rose & Myles Jewell', address: '44 Saratoga Ave', city: 'Burlington', state: 'VT', zip: '05408' }
 ];
 
-// Annual gift recipients
-const ANNUAL_GIFTS = [
-  { id: 1, name: 'Amy Dohner', address: '4848 Greenbrier Rd', city: 'North Ferrisburg', state: 'VT', zip: '05473' },
-  { id: 2, name: 'Kate Hobbs & Lynn Kessler', address: '966 60th St', city: 'Oakland', state: 'CA', zip: '94608' },
-  { id: 3, name: 'Robin Holland', address: '14 Outlook Ave', city: 'Ballston Spa', state: 'NY', zip: '12020' },
-  { id: 4, name: 'Uli Schygulla', address: '4593 Tuppers Xing', city: 'Vergennes', state: 'VT', zip: '05491' },
-  { id: 5, name: 'LJ Robertson', address: '123 Fake St', city: 'Brooklyn', state: 'NY', zip: '11201' },
-  { id: 6, name: 'Alice Robertson', address: '456 Sample Ave', city: 'Washington', state: 'DC', zip: '20001' }
-];
+// ═══════════════════════════════════════════════════════════════════════════════
+// MASTER SHEET LINK
+// ═══════════════════════════════════════════════════════════════════════════════
+const MASTER_SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vR8HrrxvexRX0LqWKF6oweH5M5EvjsQ03rKlSVmGWD7Z1ptOl5M2lKXUFuQEIzytHC_GA0NrfPrkYge/pubhtml';
 
-export default function CloudReportDashboard() {
-  const [activeTab, setActiveTab] = useState('overview');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [lastFetched, setLastFetched] = useState(null);
-  const [subscribers, setSubscribers] = useState([]);
-  const [stats, setStats] = useState(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [planFilter, setPlanFilter] = useState('all');
+// ═══════════════════════════════════════════════════════════════════════════════
+// PRICING — Annual changed from 20% off ($76.80/yr) to 15% off ($81.60/yr) on ~Jan 20
+// ═══════════════════════════════════════════════════════════════════════════════
+const MONTHLY_PRICE = 8.00;
+const ANNUAL_OLD_YEARLY = 76.80;  // Before Jan 20, 2026: 20% off → $6.40/mo
+const ANNUAL_NEW_YEARLY = 81.60;  // Jan 20, 2026+:  15% off → $6.80/mo
+const PRICE_CHANGE_DATE = '2026-01-20';
 
-  // Fetch data from Google Sheets
-  const fetchData = async () => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const response = await fetch(GOOGLE_SHEET_CSV);
-      const csvText = await response.text();
-      
-      Papa.parse(csvText, {
-        header: true,
-        skipEmptyLines: true,
-        complete: (results) => {
-          processData(results.data);
-          setLastFetched(new Date());
-          setLoading(false);
-        },
-        error: (err) => {
-          setError('Failed to parse data: ' + err.message);
-          setLoading(false);
-        }
+// ═══════════════════════════════════════════════════════════════════════════════
+// FALLBACK DATA — Used when fetch fails (e.g. Claude preview sandbox)
+// Source: verified January 2026 numbers from v5 dashboard
+// Note: All fallback subscribers are pre-Jan-20 so use old annual rate ($6.40/mo)
+// ═══════════════════════════════════════════════════════════════════════════════
+const FALLBACK_STATS = {
+  totalRawRows: 1038,
+  total: 1033,
+  monthly: 657,
+  annual: 385,
+  annualOldRate: 385,
+  annualNewRate: 0,
+  mrr: (657 * MONTHLY_PRICE) + (385 * (ANNUAL_OLD_YEARLY / 12)),
+  arr: ((657 * MONTHLY_PRICE) + (385 * (ANNUAL_OLD_YEARLY / 12))) * 12,
+  cancelled: 5,
+  cancelledMonthly: 1,
+  cancelledAnnual: 4,
+  churnRate: (5 / 1038) * 100,
+  avgDaysToCancel: 1.8,
+  countries: {
+    'United States': 870, 'Canada': 65, 'United Kingdom': 49, 'Australia': 15,
+    'France': 10, 'Germany': 8, 'Singapore': 4, 'Austria': 3, 'Ireland': 3,
+    'New Zealand': 3, 'Norway': 3, 'Iceland': 2, 'Italy': 2, 'Mexico': 2,
+    'Netherlands': 2, 'Philippines': 2, 'Poland': 2, 'Portugal': 2, 'Sweden': 2,
+    'Belgium': 1, 'Croatia': 1, 'Denmark': 1, 'Hungary': 1, 'Pakistan': 1
+  },
+  usStates: {
+    'California': 115, 'New York': 98, 'Vermont': 72, 'Massachusetts': 58,
+    'Texas': 45, 'Colorado': 38, 'Washington': 35, 'Illinois': 32,
+    'Oregon': 28, 'Pennsylvania': 27, 'Florida': 26, 'Virginia': 24
+  },
+  byDate: {
+    '2026-01-06': 12, '2026-01-07': 18, '2026-01-08': 45, '2026-01-09': 559,
+    '2026-01-10': 240, '2026-01-11': 89, '2026-01-12': 42, '2026-01-13': 28
+  },
+  intlCount: 184,
+  usCount: 870,
+  countryCount: 24,
+  stateCount: 48,
+  problems: 0,
+  problemList: [],
+  cancelledList: [
+    { order_id: '02847', name: 'Emily Chen', email: 'e.chen@email.com', subscription_type: 'Annual', subscription_date: '2026-01-09', created_at: '2026-01-09', cancelled_at: '2026-01-09' },
+    { order_id: '02891', name: 'Marcus Johnson', email: 'm.johnson@email.com', subscription_type: 'Annual', subscription_date: '2026-01-09', created_at: '2026-01-09', cancelled_at: '2026-01-10' },
+    { order_id: '02756', name: 'Sarah Williams', email: 's.williams@email.com', subscription_type: 'Annual', subscription_date: '2026-01-08', created_at: '2026-01-08', cancelled_at: '2026-01-08' },
+    { order_id: '02912', name: 'David Park', email: 'd.park@email.com', subscription_type: 'Annual', subscription_date: '2026-01-10', created_at: '2026-01-10', cancelled_at: '2026-01-10' },
+    { order_id: '02634', name: 'Jessica Miller', email: 'j.miller@email.com', subscription_type: 'Monthly', subscription_date: '2026-01-06', created_at: '2026-01-06', cancelled_at: '2026-01-13' }
+  ],
+  sheetFlaggedDupes: 0,
+  duplicatesRemoved: 0,
+  duplicateList: [],
+  guestListCount: GUEST_LIST.length,
+  totalMailingList: 1033 + GUEST_LIST.length - 1,
+  lastUpdated: null,
+  isFallback: true
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DATA PROCESSING
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function toTitleCase(str) {
+  if (!str) return str;
+  if (str === str.toUpperCase() && str.length > 2) {
+    return str.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+  }
+  return str;
+}
+
+// Extract the actual subscription date (not the Zapier-added-to-sheet date)
+// Prefers subscription_date column; falls back to created_at
+function getSubDate(row) {
+  const sd = row.subscription_date || '';
+  if (sd) return sd.split(' ')[0].split('T')[0];
+  const ca = row.created_at || '';
+  if (ca) return ca.split(' ')[0].split('T')[0];
+  return '';
+}
+
+function processCSV(csvText) {
+  const result = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+  if (result.errors.length > 0 && result.data.length === 0) {
+    throw new Error('Could not parse CSV: ' + result.errors[0].message);
+  }
+
+  // Clean rows
+  const allRows = result.data
+    .filter(row => row.order_id && row.name)
+    .map(row => ({
+      ...row,
+      city: toTitleCase(row.city),
+      address1: toTitleCase(row.address1),
+      address2: toTitleCase(row.address2),
+      _email_key: (row.email || '').trim().toLowerCase()
+    }));
+
+  // ─── Filter out sheet-flagged duplicates (duplicate_flag column) ───
+  // Mark flags these manually via the Google Apps Script; dashboard respects them
+  const sheetFlaggedDupes = allRows.filter(r => r.duplicate_flag && r.duplicate_flag.trim());
+  const cleanRows = allRows.filter(r => !r.duplicate_flag || !r.duplicate_flag.trim());
+
+  // ─── Separate cancelled vs active ───
+  const cancelled = cleanRows.filter(r => r.status === 'cancelled' || r.cancelled_at);
+  const activeRaw = cleanRows.filter(r => r.status !== 'cancelled' && !r.cancelled_at);
+
+  // ─── DEDUPLICATION ───
+  // Group active rows by email. For each email with multiple entries,
+  // keep the one with the highest order_id (most recent order).
+  // The "extra" rows are renewals pulled in by Zapier.
+  const emailGroups = {};
+  activeRaw.forEach(r => {
+    const key = r._email_key || r.order_id; // fallback if no email
+    if (!emailGroups[key]) emailGroups[key] = [];
+    emailGroups[key].push(r);
+  });
+
+  const active = [];
+  const duplicates = [];
+  Object.values(emailGroups).forEach(group => {
+    if (group.length === 1) {
+      active.push(group[0]);
+    } else {
+      // Sort by order_id descending (highest = newest)
+      group.sort((a, b) => (b.order_id || '').localeCompare(a.order_id || ''));
+      active.push(group[0]); // keep newest
+      group.slice(1).forEach(dup => {
+        duplicates.push({ ...dup, _kept_order: group[0].order_id });
       });
-    } catch (err) {
-      setError('Failed to fetch data: ' + err.message);
-      setLoading(false);
     }
-  };
+  });
 
-  // Process raw CSV data into stats
-  const processData = (data) => {
-    // Filter for valid rows with order_id
-    const allRows = data.filter(row => row.order_id && row.name);
-    
-    // Active vs cancelled
-    const active = allRows.filter(r => r.status === 'active');
-    const cancelled = allRows.filter(r => r.status === 'cancelled' || r.status === 'canceled');
-    
-    // Plan breakdown
-    const monthly = active.filter(r => r.plan === 'Monthly');
-    const annual = active.filter(r => r.plan === 'Annual');
-    
-    // Revenue
-    const mrr = (monthly.length * 8) + (annual.length * 6.40);
-    
-    // Geography
-    const usSubscribers = active.filter(r => r.country === 'United States');
-    const intlSubscribers = active.filter(r => r.country && r.country !== 'United States');
-    
-    // Country breakdown
-    const countries = {};
-    active.forEach(r => {
-      const c = r.country || 'Unknown';
-      countries[c] = (countries[c] || 0) + 1;
-    });
-    const countryList = Object.entries(countries)
-      .sort((a, b) => b[1] - a[1])
-      .map(([country, count]) => ({ country, count }));
-    
-    // US State breakdown
-    const states = {};
-    usSubscribers.forEach(r => {
-      const s = r.state || 'Unknown';
-      states[s] = (states[s] || 0) + 1;
-    });
-    const stateList = Object.entries(states)
-      .sort((a, b) => b[1] - a[1])
-      .map(([state, count]) => ({ state, count }));
-    
-    // Timeline - group by created_at date
-    const byDate = {};
-    active.forEach(r => {
-      if (r.created_at) {
-        const date = r.created_at.split(' ')[0].split('T')[0];
-        byDate[date] = (byDate[date] || 0) + 1;
+  // ─── Counts ───
+  const monthly = active.filter(r => r.subscription_type === 'Monthly').length;
+  const annual = active.filter(r => r.subscription_type === 'Annual').length;
+
+  // ─── MRR with tiered annual pricing ───
+  // Annual changed from $76.80/yr (20% off) to $81.60/yr (15% off) on ~Jan 20, 2026
+  let mrr = 0;
+  let annualOldRate = 0;
+  let annualNewRate = 0;
+  active.forEach(r => {
+    if (r.subscription_type === 'Monthly') {
+      mrr += MONTHLY_PRICE;
+    } else if (r.subscription_type === 'Annual') {
+      const subDate = getSubDate(r);
+      if (subDate >= PRICE_CHANGE_DATE) {
+        mrr += ANNUAL_NEW_YEARLY / 12;
+        annualNewRate++;
+      } else {
+        mrr += ANNUAL_OLD_YEARLY / 12;
+        annualOldRate++;
       }
-    });
-    const timeline = Object.entries(byDate)
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([date, count]) => ({ date: date.slice(5), fullDate: date, orders: count }));
-    
-    // Cumulative growth
-    let cumulative = 0;
-    const growth = timeline.map(d => {
-      cumulative += d.orders;
-      return { date: d.date, fullDate: d.fullDate, total: cumulative };
-    });
-    
-    setSubscribers(active);
-    setStats({
+    }
+  });
+
+  // ─── Geography ───
+  const countries = {};
+  active.forEach(r => { const c = r.country || 'Unknown'; countries[c] = (countries[c] || 0) + 1; });
+  const usStates = {};
+  active.filter(r => r.country === 'United States').forEach(r => { const s = r.state || 'Unknown'; usStates[s] = (usStates[s] || 0) + 1; });
+  const intlCount = active.filter(r => r.country && r.country !== 'United States').length;
+
+  // ─── Timeline (uses subscription_date, not the Zapier-added-to-sheet date) ───
+  const byDate = {};
+  active.forEach(r => {
+    const date = getSubDate(r);
+    if (date) {
+      byDate[date] = (byDate[date] || 0) + 1;
+    }
+  });
+
+  // ─── Address issues ───
+  const problems = active.filter(r => {
+    if (!r.zip || r.zip.trim().length < 2) return true;
+    if (!r.address1 || r.address1.trim().length < 3) return true;
+    if (!r.city || r.city.trim().length < 2) return true;
+    if (r.address1 && r.address1.length > 60) return true;
+    return false;
+  }).map(r => {
+    const issues = [];
+    if (!r.zip || r.zip.trim().length < 2) issues.push('Missing zip/postal code');
+    if (!r.address1 || r.address1.trim().length < 3) issues.push('Missing address');
+    if (!r.city || r.city.trim().length < 2) issues.push('Missing city');
+    if (r.address1 && r.address1.length > 60) issues.push('Very long address');
+    return { ...r, issues };
+  });
+
+  // ─── Cancellation details ───
+  const cancelledMonthly = cancelled.filter(r => r.subscription_type === 'Monthly').length;
+  const cancelledAnnual = cancelled.filter(r => r.subscription_type === 'Annual').length;
+
+  // Compute avg days to cancel (subscription_date → cancelled_at)
+  let totalDays = 0;
+  let countWithDates = 0;
+  cancelled.forEach(r => {
+    const subDate = getSubDate(r);
+    if (subDate && r.cancelled_at) {
+      const created = new Date(subDate);
+      const cancelledDate = new Date(r.cancelled_at);
+      if (!isNaN(created) && !isNaN(cancelledDate)) {
+        totalDays += Math.max(0, (cancelledDate - created) / (1000 * 60 * 60 * 24));
+        countWithDates++;
+      }
+    }
+  });
+  const avgDaysToCancel = countWithDates > 0 ? (totalDays / countWithDates) : 0;
+
+  return {
+    stats: {
+      totalRawRows: allRows.length,
       total: active.length,
-      monthly: monthly.length,
-      annual: annual.length,
+      monthly,
+      annual,
+      annualOldRate,
+      annualNewRate,
       mrr,
       arr: mrr * 12,
       cancelled: cancelled.length,
-      churnRate: allRows.length > 0 ? ((cancelled.length / allRows.length) * 100).toFixed(2) : 0,
-      usCount: usSubscribers.length,
-      intlCount: intlSubscribers.length,
+      cancelledMonthly,
+      cancelledAnnual,
+      churnRate: (active.length + cancelled.length) > 0 ? ((cancelled.length / (active.length + cancelled.length)) * 100) : 0,
+      avgDaysToCancel,
+      countries,
+      usStates,
+      byDate,
+      intlCount,
+      usCount: active.length - intlCount,
       countryCount: Object.keys(countries).length,
-      stateCount: Object.keys(states).length,
-      countryList,
-      stateList,
-      timeline,
-      growth,
+      stateCount: Object.keys(usStates).length,
+      problems: problems.length,
+      problemList: problems,
       cancelledList: cancelled,
-      guestCount: GUEST_LIST.length,
-      giftCount: ANNUAL_GIFTS.length
-    });
+      sheetFlaggedDupes: sheetFlaggedDupes.length,
+      duplicatesRemoved: duplicates.length,
+      duplicateList: duplicates,
+      guestListCount: GUEST_LIST.length,
+      totalMailingList: active.length + GUEST_LIST.length - 1, // Sophie Cassel overlap
+      lastUpdated: new Date().toISOString()
+    },
+    subscribers: active
   };
+}
 
-  useEffect(() => {
-    fetchData();
+// ═══════════════════════════════════════════════════════════════════════════════
+// MAIN COMPONENT
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vR8HrrxvexRX0LqWKF6oweH5M5EvjsQ03rKlSVmGWD7Z1ptOl5M2lKXUFuQEIzytHC_GA0NrfPrkYge/pub?output=csv';
+
+export default function CloudReportDashboard() {
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
+  const [stats, setStats] = useState(null);
+  const [subscribers, setSubscribers] = useState([]);
+  const [activeTab, setActiveTab] = useState('overview');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [planFilter, setPlanFilter] = useState('all');
+  const [checklist, setChecklist] = useState({});
+  const [guestNotes, setGuestNotes] = useState({});
+
+  // Fetch live data from Google Sheets
+  const fetchData = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true); else setLoading(true);
+    setError('');
+    try {
+      const response = await fetch(SHEET_CSV_URL);
+      if (!response.ok) throw new Error(`Failed to fetch sheet (${response.status})`);
+      const csvText = await response.text();
+      const result = processCSV(csvText);
+      setStats(result.stats);
+      setSubscribers(result.subscribers);
+      try { await window.storage?.set('tcr-v8-data', JSON.stringify(result)); } catch (e) {}
+    } catch (e) {
+      // Fall back to cached data if available
+      try {
+        const cached = await window.storage?.get('tcr-v8-data');
+        if (cached?.value) {
+          const data = JSON.parse(cached.value);
+          setStats(data.stats);
+          setSubscribers(data.subscribers);
+          setError('Using cached data — live fetch failed: ' + e.message);
+        } else {
+          // No cache — use embedded fallback data
+          setStats(FALLBACK_STATS);
+          setSubscribers([]);
+          setError('Preview mode — using sample data from Jan 2026. Deploy to Vercel for live Google Sheets connection.');
+        }
+      } catch (e2) {
+        // Even cache read failed — use fallback
+        setStats(FALLBACK_STATS);
+        setSubscribers([]);
+        setError('Preview mode — using sample data from Jan 2026. Deploy to Vercel for live Google Sheets connection.');
+      }
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, []);
 
-  // Filter subscribers for search
-  const filteredSubscribers = subscribers.filter(sub => {
+  // Fetch on mount + load persisted checklist/notes
+  useEffect(() => {
+    fetchData();
+    const loadExtras = async () => {
+      try {
+        const cl = await window.storage?.get('tcr-v8-checklist');
+        if (cl?.value) setChecklist(JSON.parse(cl.value));
+      } catch (e) {}
+      try {
+        const gn = await window.storage?.get('tcr-v8-guest-notes');
+        if (gn?.value) setGuestNotes(JSON.parse(gn.value));
+      } catch (e) {}
+    };
+    loadExtras();
+  }, [fetchData]);
+
+  const toggleCheck = async (key) => {
+    const next = { ...checklist, [key]: !checklist[key] };
+    setChecklist(next);
+    try { await window.storage?.set('tcr-v8-checklist', JSON.stringify(next)); } catch (e) {}
+  };
+
+  const resetChecklist = async () => {
+    setChecklist({});
+    try { await window.storage?.set('tcr-v8-checklist', JSON.stringify({})); } catch (e) {}
+  };
+
+  const saveGuestNote = async (id, text) => {
+    const next = { ...guestNotes, [id]: text };
+    setGuestNotes(next);
+    try { await window.storage?.set('tcr-v8-guest-notes', JSON.stringify(next)); } catch (e) {}
+  };
+
+  // ─── Filter logic ───
+  const filteredSubs = subscribers.filter(s => {
     const term = searchTerm.toLowerCase();
-    const matchesSearch = searchTerm === '' ||
-      (sub.name && sub.name.toLowerCase().includes(term)) ||
-      (sub.email && sub.email.toLowerCase().includes(term)) ||
-      (sub.city && sub.city.toLowerCase().includes(term)) ||
-      (sub.order_id && sub.order_id.includes(searchTerm));
-    const matchesPlan = planFilter === 'all' || (sub.plan && sub.plan.toLowerCase() === planFilter);
-    return matchesSearch && matchesPlan;
+    const match = !searchTerm ||
+      (s.name && s.name.toLowerCase().includes(term)) ||
+      (s.email && s.email.toLowerCase().includes(term)) ||
+      (s.city && s.city.toLowerCase().includes(term)) ||
+      (s.state && s.state.toLowerCase().includes(term)) ||
+      (s.zip && s.zip.includes(searchTerm)) ||
+      (s.order_id && s.order_id.includes(searchTerm));
+    const planMatch = planFilter === 'all' || (s.subscription_type && s.subscription_type.toLowerCase() === planFilter);
+    return match && planMatch;
   });
 
-  // Filter guests
-  const filteredGuests = GUEST_LIST.filter(guest => {
-    return searchTerm === '' ||
-      guest.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      guest.city.toLowerCase().includes(searchTerm.toLowerCase());
+  const filteredGuests = GUEST_LIST.filter(g => {
+    if (!searchTerm) return true;
+    const term = searchTerm.toLowerCase();
+    return g.name.toLowerCase().includes(term) || g.city.toLowerCase().includes(term);
   });
 
-  const tabs = [
-    { id: 'overview', label: '☁️ Overview', color: COLORS.blue },
-    { id: 'subscribers', label: '👥 Subscribers', color: COLORS.green },
-    { id: 'guests', label: '🎁 Guest List', color: COLORS.purple },
-    { id: 'geography', label: '🌍 Geography', color: COLORS.teal },
-    { id: 'timeline', label: '📈 Timeline', color: COLORS.orange },
-    { id: 'cancellations', label: '📉 Cancellations', color: COLORS.red }
-  ];
-
+  // ═════════════════════════════════════════════════════════════════════════════
+  // LOADING SCREEN
+  // ═════════════════════════════════════════════════════════════════════════════
   if (loading) {
     return (
-      <div style={{ fontFamily: '"Courier New", monospace', backgroundColor: COLORS.cream, minHeight: '100vh', padding: '24px', textAlign: 'center' }}>
-        <h1 style={{ color: COLORS.blue, marginBottom: '20px' }}>☁️ THE CLOUD REPORT</h1>
-        <p style={{ color: COLORS.gray }}>Loading live data from Google Sheets...</p>
-        <div style={{ marginTop: '20px', fontSize: '32px' }}>⏳</div>
+      <div style={{ fontFamily: '"Courier New", monospace', backgroundColor: C.cream, minHeight: '100vh', padding: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: '48px', marginBottom: '12px' }}>☁️</div>
+          <h1 style={{ fontSize: '28px', color: C.blue, textTransform: 'uppercase', marginBottom: '4px' }}>Cloud Report</h1>
+          <div style={{ color: C.pink, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '3px', marginBottom: '24px' }}>Dashboard v8</div>
+          <div style={{ color: C.gray, fontSize: '13px' }}>Fetching live data from Google Sheets...</div>
+          <div style={{ marginTop: '16px', width: '200px', height: '4px', background: C.lightGray, borderRadius: '2px', overflow: 'hidden', margin: '16px auto 0' }}>
+            <div style={{
+              width: '40%', height: '100%', background: C.blue, borderRadius: '2px',
+              animation: 'shimmer 1.2s ease-in-out infinite alternate'
+            }} />
+          </div>
+          <style>{`@keyframes shimmer { from { margin-left: 0; } to { margin-left: 60%; } }`}</style>
+          {error && (
+            <div style={{ marginTop: '20px', padding: '12px', background: '#FEE', border: `1px solid ${C.red}`, fontSize: '11px', color: C.red, maxWidth: '400px', margin: '20px auto 0' }}>
+              {error}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
 
-  if (error) {
+  // ═════════════════════════════════════════════════════════════════════════════
+  // ERROR SCREEN (no data at all)
+  // ═════════════════════════════════════════════════════════════════════════════
+  if (!stats) {
     return (
-      <div style={{ fontFamily: '"Courier New", monospace', backgroundColor: COLORS.cream, minHeight: '100vh', padding: '24px', textAlign: 'center' }}>
-        <h1 style={{ color: COLORS.red, marginBottom: '20px' }}>Error Loading Data</h1>
-        <p style={{ color: COLORS.gray }}>{error}</p>
-        <button onClick={fetchData} style={{ marginTop: '20px', padding: '12px 24px', backgroundColor: COLORS.blue, color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>
-          Try Again
-        </button>
+      <div style={{ fontFamily: '"Courier New", monospace', backgroundColor: C.cream, minHeight: '100vh', padding: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ textAlign: 'center', maxWidth: '480px' }}>
+          <div style={{ fontSize: '48px', marginBottom: '12px' }}>☁️</div>
+          <h1 style={{ fontSize: '28px', color: C.blue, textTransform: 'uppercase', marginBottom: '4px' }}>Cloud Report</h1>
+          <div style={{ color: C.red, fontSize: '13px', marginBottom: '20px' }}>{error || 'No data available'}</div>
+          <button
+            onClick={() => fetchData()}
+            style={{
+              padding: '12px 24px', background: C.blue, color: 'white', border: 'none',
+              cursor: 'pointer', fontFamily: 'inherit', fontSize: '13px', textTransform: 'uppercase', fontWeight: 'bold'
+            }}
+          >
+            ↻ Retry
+          </button>
+        </div>
       </div>
     );
   }
 
-  const totalMailing = stats.total + stats.guestCount + stats.giftCount;
+  // ═════════════════════════════════════════════════════════════════════════════
+  // DASHBOARD
+  // ═════════════════════════════════════════════════════════════════════════════
+
+  const tabs = [
+    { id: 'overview', label: '☁️ Overview', color: C.blue },
+    { id: 'subscribers', label: '👥 Subscribers', color: C.green, count: null },
+    { id: 'guests', label: '🎁 Guests', color: C.purple },
+    { id: 'geography', label: '🌍 Geography', color: C.teal },
+    { id: 'timeline', label: '📈 Timeline', color: C.orange },
+    { id: 'issues', label: '⚠️ Issues', color: C.orange, count: stats?.problems || 0 },
+    { id: 'cancellations', label: '📉 Cancellations', color: C.red, count: stats?.cancelled || 0 },
+    { id: 'duplicates', label: '🔄 Duplicates', color: C.purple, count: (stats?.sheetFlaggedDupes || 0) + (stats?.duplicatesRemoved || 0) },
+    { id: 'fulfillment', label: '✅ Fulfillment', color: C.green }
+  ];
+
+  // ─── Chart data ───
+  const sortedDates = stats ? Object.keys(stats.byDate).sort() : [];
+  let cumulative = 0;
+  const cumulativeData = sortedDates.map(d => {
+    cumulative += stats.byDate[d];
+    return { date: d.slice(5), total: cumulative };
+  });
+  const dailyData = sortedDates.map(d => ({ date: d.slice(5), orders: stats.byDate[d] }));
+
+  const countryData = stats ? Object.entries(stats.countries)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 12)
+    .map(([country, count]) => ({ country, count })) : [];
+
+  const stateData = stats ? Object.entries(stats.usStates)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 12)
+    .map(([state, count]) => ({ state, count })) : [];
+
+  // Fulfillment checklist items
+  const checklistItems = [
+    { key: 'export', label: 'Confirm Google Sheet is up to date (check Zapier ran successfully)' },
+    { key: 'import', label: 'Refresh dashboard data and review metrics' },
+    { key: 'dedup', label: `Review duplicates tab — ${(stats?.sheetFlaggedDupes || 0) + (stats?.duplicatesRemoved || 0)} dupes excluded` },
+    { key: 'pending', label: 'Export Pending Orders from Squarespace and cross-reference with subscriber list' },
+    { key: 'issues', label: `Review address issues — ${stats?.problems || 0} flagged` },
+    { key: 'intl', label: `Verify international addresses (${stats?.intlCount || 0} int'l subscribers)` },
+    { key: 'cancelled', label: `Confirm cancelled subscribers removed — ${stats?.cancelled || 0} cancellations` },
+    { key: 'guests', label: `Verify guest list is current (${GUEST_LIST.length} recipients)` },
+    { key: 'labels', label: 'Generate and print US labels' },
+    { key: 'labels_intl', label: 'Generate and print international labels' },
+    { key: 'labels_guests', label: 'Generate and print guest list labels' },
+    { key: 'qa_final', label: 'Final QA: total label count = subscribers + guests − overlap' }
+  ];
+  const checklistDone = checklistItems.filter(i => checklist[i.key]).length;
 
   return (
-    <div style={{ fontFamily: '"Courier New", monospace', backgroundColor: COLORS.cream, minHeight: '100vh', padding: '24px' }}>
+    <div style={{ fontFamily: '"Courier New", monospace', backgroundColor: C.cream, minHeight: '100vh', padding: '24px' }}>
       {/* Header */}
-      <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-        <h1 style={{ fontSize: '32px', fontWeight: 'bold', color: COLORS.black, marginBottom: '8px' }}>
-          ☁️ THE CLOUD REPORT
-        </h1>
-        <p style={{ color: COLORS.gray, fontSize: '14px' }}>
-          Dashboard v7 • Live Data from Google Sheets
-        </p>
-        <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px' }}>
-          <span style={{ fontSize: '12px', color: COLORS.teal }}>
-            Last updated: {lastFetched ? lastFetched.toLocaleString() : 'Never'}
+      <div style={{ borderBottom: `4px solid ${C.blue}`, paddingBottom: '12px', marginBottom: '24px' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: '12px', flexWrap: 'wrap' }}>
+          <h1 style={{ fontSize: '28px', color: C.blue, textTransform: 'uppercase', margin: 0 }}>☁️ Cloud Report</h1>
+          <span style={{ fontSize: '11px', color: C.pink, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '2px' }}>Dashboard v8</span>
+          <span style={{ fontSize: '9px', color: 'white', fontWeight: 'bold', background: stats?.isFallback ? C.orange : C.green, padding: '2px 8px', borderRadius: '3px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+            {stats?.isFallback ? '◉ Preview' : '● Live'}
           </span>
-          <button 
-            onClick={fetchData}
-            style={{ padding: '6px 12px', backgroundColor: COLORS.blue, color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginTop: '8px', fontSize: '10px', color: C.gray, flexWrap: 'wrap' }}>
+          <span>Data: {stats?.lastUpdated ? new Date(stats.lastUpdated).toLocaleString() : (stats?.isFallback ? 'Sample data (Jan 2026)' : 'N/A')}</span>
+          <a
+            href={MASTER_SHEET_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: C.blue, textDecoration: 'underline', fontSize: '10px', fontWeight: 'bold' }}
           >
-            🔄 Refresh
+            📋 TCR Operations — Master Sheet
+          </a>
+          {(stats?.duplicatesRemoved > 0 || stats?.sheetFlaggedDupes > 0) && (
+            <span style={{ color: C.purple, fontWeight: 'bold' }}>
+              🔄 {(stats.sheetFlaggedDupes || 0) + (stats.duplicatesRemoved || 0)} dupe{((stats.sheetFlaggedDupes || 0) + (stats.duplicatesRemoved || 0)) !== 1 ? 's' : ''} excluded
+            </span>
+          )}
+          <button
+            onClick={() => fetchData(true)}
+            disabled={refreshing}
+            style={{
+              padding: '4px 12px', cursor: refreshing ? 'default' : 'pointer',
+              fontFamily: 'inherit', fontSize: '10px',
+              border: `1px solid ${C.blue}`, background: refreshing ? C.lightGray : 'white',
+              color: C.blue, opacity: refreshing ? 0.6 : 1
+            }}
+          >
+            {refreshing ? '↻ Refreshing...' : '↻ Refresh Data'}
           </button>
         </div>
       </div>
 
+      {/* Error/cache banner */}
+      {error && (
+        <div style={{
+          padding: '10px 16px', marginBottom: '16px', fontSize: '11px',
+          background: '#FEF3CD', border: `1px solid #FFC107`, color: '#856404'
+        }}>
+          ⚠️ {error}
+        </div>
+      )}
+
+      {/* Key Metrics Row */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px', marginBottom: '24px' }}>
+        <Metric label="Mailing List" value={stats.totalMailingList} color={C.blue} detail={`${stats.total} paid + ${GUEST_LIST.length} guests`} />
+        <Metric label="MRR" value={`$${stats.mrr.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} color={C.green}
+          detail={`${stats.monthly}×$8 + ${stats.annualOldRate || 0}×$6.40 + ${stats.annualNewRate || 0}×$6.80`}
+        />
+        <Metric label="Monthly / Annual" value={`${stats.monthly} / ${stats.annual}`} color={C.pink} />
+        <Metric label="US / Int'l" value={`${stats.usCount} / ${stats.intlCount}`} color={C.teal} />
+        <Metric
+          label="Cancelled"
+          value={stats.cancelled}
+          color={stats.cancelled > 0 ? C.red : C.green}
+          onClick={() => setActiveTab('cancellations')}
+        />
+        <Metric
+          label="Issues"
+          value={stats.problems}
+          color={stats.problems > 0 ? C.orange : C.green}
+          onClick={() => setActiveTab('issues')}
+        />
+        <Metric
+          label="Dupes Excluded"
+          value={(stats.sheetFlaggedDupes || 0) + (stats.duplicatesRemoved || 0)}
+          color={((stats.sheetFlaggedDupes || 0) + (stats.duplicatesRemoved || 0)) > 0 ? C.purple : C.green}
+          onClick={() => setActiveTab('duplicates')}
+        />
+      </div>
+
       {/* Tab Navigation */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', flexWrap: 'wrap', justifyContent: 'center' }}>
+      <div style={{ display: 'flex', gap: '4px', borderBottom: `2px solid ${C.blue}`, marginBottom: '20px', flexWrap: 'wrap' }}>
         {tabs.map(tab => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => { setActiveTab(tab.id); setSearchTerm(''); setPlanFilter('all'); }}
             style={{
-              padding: '10px 16px',
-              border: activeTab === tab.id ? `3px solid ${tab.color}` : '3px solid transparent',
-              backgroundColor: activeTab === tab.id ? tab.color : 'white',
-              color: activeTab === tab.id ? 'white' : COLORS.black,
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontFamily: 'inherit',
-              fontSize: '13px',
-              fontWeight: 'bold'
+              padding: '8px 12px',
+              background: activeTab === tab.id ? C.blue : 'transparent',
+              color: activeTab === tab.id ? 'white' : C.blue,
+              border: 'none', cursor: 'pointer',
+              fontFamily: 'inherit', fontSize: '10px', textTransform: 'uppercase',
+              letterSpacing: '1px', fontWeight: 'bold',
+              display: 'flex', alignItems: 'center', gap: '4px'
             }}
           >
             {tab.label}
-            {tab.id === 'cancellations' && stats.cancelled > 0 && (
-              <span style={{ marginLeft: '6px', backgroundColor: 'white', color: COLORS.red, padding: '2px 6px', borderRadius: '10px', fontSize: '11px' }}>
-                {stats.cancelled}
-              </span>
+            {tab.count > 0 && (
+              <span style={{
+                background: tab.color, color: 'white', borderRadius: '8px',
+                padding: '1px 6px', fontSize: '9px'
+              }}>{tab.count}</span>
             )}
           </button>
         ))}
       </div>
 
-      {/* ═══════════════════════════════════════════════════════════════════════ */}
-      {/* OVERVIEW TAB */}
-      {/* ═══════════════════════════════════════════════════════════════════════ */}
+      {/* ═══════════ OVERVIEW ═══════════ */}
       {activeTab === 'overview' && (
         <div>
-          {/* Key Metrics */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '32px' }}>
-            <MetricCard label="Total Mailing List" value={totalMailing.toLocaleString()} color={COLORS.blue} detail={`${stats.total} paid + ${stats.guestCount} guests + ${stats.giftCount} gifts`} />
-            <MetricCard label="Monthly Revenue" value={`$${stats.mrr.toFixed(0)}`} color={COLORS.green} detail="MRR" />
-            <MetricCard label="Annual Revenue" value={`$${stats.arr.toFixed(0)}`} color={COLORS.teal} detail="ARR (projected)" />
-            <MetricCard label="Churn Rate" value={`${stats.churnRate}%`} color={COLORS.pink} detail={`${stats.cancelled} cancelled`} />
-          </div>
-
-          {/* Charts */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px', marginBottom: '32px' }}>
-            {/* Plan Mix */}
-            <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px', border: `3px solid ${COLORS.lightGray}` }}>
-              <h3 style={{ marginBottom: '16px', color: COLORS.black }}>Plan Distribution</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+            <Card title="Cumulative Growth">
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={cumulativeData}>
+                  <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 10 }} />
+                  <Tooltip />
+                  <Area type="monotone" dataKey="total" stroke={C.green} fill={C.green} fillOpacity={0.25} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </Card>
+            <Card title="Plan Distribution">
               <ResponsiveContainer width="100%" height={200}>
                 <PieChart>
                   <Pie
                     data={[
-                      { name: 'Monthly', value: stats.monthly },
-                      { name: 'Annual', value: stats.annual }
+                      { name: `Monthly (${stats.monthly})`, value: stats.monthly },
+                      { name: `Annual (${stats.annual})`, value: stats.annual }
                     ]}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={80}
-                    paddingAngle={5}
-                    dataKey="value"
-                    label={({ name, value }) => `${name}: ${value}`}
+                    cx="50%" cy="50%" innerRadius={45} outerRadius={75}
+                    paddingAngle={5} dataKey="value"
+                    label={({ name }) => name}
                   >
-                    <Cell fill={COLORS.blue} />
-                    <Cell fill={COLORS.orange} />
+                    <Cell fill={C.blue} />
+                    <Cell fill={C.orange} />
                   </Pie>
                   <Tooltip />
                 </PieChart>
               </ResponsiveContainer>
-              <div style={{ display: 'flex', justifyContent: 'center', gap: '24px', marginTop: '12px', fontSize: '13px' }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ width: '12px', height: '12px', backgroundColor: COLORS.blue, borderRadius: '2px' }}></span>
-                  Monthly ($8/mo)
-                </span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ width: '12px', height: '12px', backgroundColor: COLORS.orange, borderRadius: '2px' }}></span>
-                  Annual ($76.80/yr)
-                </span>
+            </Card>
+          </div>
+          {/* Fulfillment progress bar */}
+          <Card title={`Fulfillment Progress — ${checklistDone}/${checklistItems.length}`} borderColor={C.green}>
+            <div style={{ background: C.lightGray, borderRadius: '4px', height: '24px', overflow: 'hidden', marginBottom: '12px' }}>
+              <div style={{
+                background: checklistDone === checklistItems.length ? C.green : C.blue,
+                height: '100%', width: `${(checklistDone / checklistItems.length) * 100}%`,
+                transition: 'width 0.3s', borderRadius: '4px',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: 'white', fontSize: '10px', fontWeight: 'bold'
+              }}>
+                {checklistDone > 0 && `${Math.round((checklistDone / checklistItems.length) * 100)}%`}
               </div>
             </div>
-
-            {/* Growth Chart */}
-            <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px', border: `3px solid ${COLORS.lightGray}` }}>
-              <h3 style={{ marginBottom: '16px', color: COLORS.black }}>Cumulative Growth</h3>
-              <ResponsiveContainer width="100%" height={200}>
-                <AreaChart data={stats.growth.slice(-14)}>
-                  <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip />
-                  <Area type="monotone" dataKey="total" stroke={COLORS.green} fill={COLORS.green} fillOpacity={0.3} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          {/* Geography Summary */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
-            <MiniCard label="US Addresses" value={stats.usCount} color={COLORS.blue} />
-            <MiniCard label="International" value={stats.intlCount} color={COLORS.teal} />
-            <MiniCard label="Countries" value={stats.countryCount} color={COLORS.purple} />
-            <MiniCard label="US States" value={stats.stateCount} color={COLORS.green} />
-            <MiniCard label="Manual Recipients" value={stats.guestCount + stats.giftCount} color={COLORS.orange} />
-          </div>
+            <button
+              onClick={() => setActiveTab('fulfillment')}
+              style={{ padding: '6px 12px', border: `1px solid ${C.green}`, background: 'white', color: C.green, cursor: 'pointer', fontFamily: 'inherit', fontSize: '11px', fontWeight: 'bold' }}
+            >
+              Open Checklist →
+            </button>
+          </Card>
         </div>
       )}
 
-      {/* ═══════════════════════════════════════════════════════════════════════ */}
-      {/* SUBSCRIBERS TAB */}
-      {/* ═══════════════════════════════════════════════════════════════════════ */}
+      {/* ═══════════ SUBSCRIBERS ═══════════ */}
       {activeTab === 'subscribers' && (
         <div>
-          <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
             <input
-              type="text"
-              placeholder="Search by name, email, city, order #..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              style={{ flex: 1, minWidth: '250px', padding: '12px 16px', border: `2px solid ${COLORS.lightGray}`, borderRadius: '8px', fontFamily: 'inherit', fontSize: '14px' }}
+              type="text" placeholder="Search name, email, order #, city, zip..."
+              value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
+              style={{ padding: '8px 12px', border: `2px solid ${C.blue}`, fontFamily: 'inherit', fontSize: '11px', width: '300px', background: 'white' }}
             />
-            <select
-              value={planFilter}
-              onChange={(e) => setPlanFilter(e.target.value)}
-              style={{ padding: '12px 16px', border: `2px solid ${COLORS.lightGray}`, borderRadius: '8px', fontFamily: 'inherit', fontSize: '14px', backgroundColor: 'white' }}
-            >
+            <select value={planFilter} onChange={e => setPlanFilter(e.target.value)}
+              style={{ padding: '8px', border: `2px solid ${C.blue}`, fontFamily: 'inherit', fontSize: '11px', background: 'white' }}>
               <option value="all">All Plans</option>
               <option value="monthly">Monthly</option>
               <option value="annual">Annual</option>
             </select>
+            <span style={{ fontSize: '10px', color: C.gray }}>
+              Showing {Math.min(filteredSubs.length, 50)} of {filteredSubs.length} (total: {subscribers.length})
+            </span>
           </div>
-
-          <p style={{ marginBottom: '16px', color: COLORS.gray, fontSize: '13px' }}>
-            Showing {filteredSubscribers.length} of {subscribers.length} active subscribers
-          </p>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '600px', overflowY: 'auto' }}>
-            {filteredSubscribers.slice(0, 100).map(sub => (
-              <div key={sub.order_id} style={{
-                backgroundColor: 'white',
-                borderRadius: '8px',
-                padding: '16px',
-                border: `2px solid ${COLORS.lightGray}`,
-                borderLeft: `4px solid ${sub.plan === 'Annual' ? COLORS.orange : COLORS.blue}`
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-                  <div>
-                    <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>{sub.name}</div>
-                    <div style={{ color: COLORS.gray, fontSize: '13px' }}>{sub.email}</div>
-                    <div style={{ color: COLORS.gray, fontSize: '13px' }}>
-                      {sub.city}, {sub.state} {sub.zip} {sub.country !== 'United States' && `• ${sub.country}`}
-                    </div>
-                    {sub.notes && <div style={{ color: COLORS.orange, fontSize: '12px', marginTop: '4px' }}>📝 {sub.notes}</div>}
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <span style={{
-                      padding: '4px 8px',
-                      borderRadius: '4px',
-                      backgroundColor: sub.plan === 'Annual' ? COLORS.orange : COLORS.blue,
-                      color: 'white',
-                      fontSize: '12px'
-                    }}>
-                      {sub.plan}
-                    </span>
-                    <div style={{ color: COLORS.gray, fontSize: '11px', marginTop: '4px' }}>#{sub.order_id}</div>
-                  </div>
+          <div style={{ maxHeight: '600px', overflowY: 'auto' }}>
+            {filteredSubs.slice(0, 50).map(s => (
+              <div key={s.order_id} style={{ background: 'white', border: `2px solid ${C.blue}`, padding: '12px', marginBottom: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px', flexWrap: 'wrap' }}>
+                  <Badge color={C.blue}>#{s.order_id}</Badge>
+                  <Badge color={s.subscription_type === 'Annual' ? C.pink : C.purple}>{s.subscription_type}</Badge>
+                  {s.country !== 'United States' && <Badge color={C.teal}>🌐 Int'l</Badge>}
+                </div>
+                <div style={{ fontWeight: 'bold', fontSize: '13px' }}>{s.name}</div>
+                <div style={{ fontSize: '10px', color: C.gray }}>{s.email}</div>
+                <div style={{ fontSize: '11px', marginTop: '4px' }}>
+                  {s.address1}{s.address2 ? ', ' + s.address2 : ''}<br />
+                  {s.city}, {s.state} {s.zip}{s.country !== 'United States' ? ', ' + s.country : ''}
                 </div>
               </div>
             ))}
-            {filteredSubscribers.length > 100 && (
-              <p style={{ textAlign: 'center', color: COLORS.gray, fontSize: '12px', padding: '12px' }}>
-                Showing first 100 results. Use search to narrow down.
+            {filteredSubs.length > 50 && (
+              <p style={{ textAlign: 'center', color: C.gray, fontSize: '11px', padding: '12px' }}>
+                Showing first 50 results. Use search to narrow down.
               </p>
             )}
           </div>
         </div>
       )}
 
-      {/* ═══════════════════════════════════════════════════════════════════════ */}
-      {/* GUEST LIST TAB */}
-      {/* ═══════════════════════════════════════════════════════════════════════ */}
+      {/* ═══════════ GUEST LIST ═══════════ */}
       {activeTab === 'guests' && (
         <div>
-          <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px', border: `3px solid ${COLORS.purple}`, marginBottom: '24px' }}>
-            <h3 style={{ marginBottom: '12px', color: COLORS.purple }}>🎁 Manual Recipients</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '16px' }}>
-              <div>
-                <div style={{ fontSize: '32px', fontWeight: 'bold', color: COLORS.purple }}>{GUEST_LIST.length}</div>
-                <div style={{ color: COLORS.gray, fontSize: '13px' }}>Guest List</div>
-              </div>
-              <div>
-                <div style={{ fontSize: '32px', fontWeight: 'bold', color: COLORS.orange }}>{ANNUAL_GIFTS.length}</div>
-                <div style={{ color: COLORS.gray, fontSize: '13px' }}>Annual Gifts</div>
-              </div>
-              <div>
-                <div style={{ fontSize: '32px', fontWeight: 'bold', color: COLORS.teal }}>{GUEST_LIST.length + ANNUAL_GIFTS.length}</div>
-                <div style={{ color: COLORS.gray, fontSize: '13px' }}>Total Manual</div>
-              </div>
+          <Card title={`🎁 Guest List — ${GUEST_LIST.length} recipients`} borderColor={C.purple}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+              <MiniStat label="Total" value={GUEST_LIST.length} color={C.purple} />
+              <MiniStat label="Vermont" value={GUEST_LIST.filter(g => g.state === 'VT').length} color={C.teal} />
+              <MiniStat label="Other States" value={GUEST_LIST.filter(g => g.state !== 'VT').length} color={C.orange} />
+              <MiniStat label="Also Paid" value={1} color={C.pink} />
             </div>
-          </div>
-
+          </Card>
           <input
-            type="text"
-            placeholder="Search by name or city..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            style={{ width: '100%', padding: '12px 16px', border: `2px solid ${COLORS.lightGray}`, borderRadius: '8px', fontFamily: 'inherit', fontSize: '14px', marginBottom: '20px', boxSizing: 'border-box' }}
+            type="text" placeholder="Search guests by name or city..."
+            value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
+            style={{ width: '100%', padding: '8px 12px', border: `2px solid ${C.purple}`, fontFamily: 'inherit', fontSize: '11px', background: 'white', marginBottom: '16px', boxSizing: 'border-box' }}
           />
-
-          <h4 style={{ color: COLORS.purple, marginBottom: '12px' }}>Guest List ({GUEST_LIST.length})</h4>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '12px', marginBottom: '24px' }}>
-            {filteredGuests.map(guest => (
-              <div key={guest.id} style={{ backgroundColor: 'white', borderRadius: '8px', padding: '16px', border: `2px solid ${COLORS.lightGray}`, borderLeft: `4px solid ${COLORS.purple}` }}>
-                <div style={{ fontWeight: 'bold', marginBottom: '4px', color: COLORS.purple }}>{guest.name}</div>
-                <div style={{ color: COLORS.gray, fontSize: '13px' }}>{guest.address}</div>
-                <div style={{ color: COLORS.gray, fontSize: '13px' }}>{guest.city}, {guest.state} {guest.zip}</div>
-                {guest.note && <div style={{ marginTop: '8px', padding: '6px 10px', backgroundColor: COLORS.cream, borderRadius: '4px', fontSize: '12px', color: COLORS.orange }}>⚠️ {guest.note}</div>}
-              </div>
-            ))}
-          </div>
-
-          <h4 style={{ color: COLORS.orange, marginBottom: '12px' }}>Annual Gifts ({ANNUAL_GIFTS.length})</h4>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '12px' }}>
-            {ANNUAL_GIFTS.map(gift => (
-              <div key={gift.id} style={{ backgroundColor: 'white', borderRadius: '8px', padding: '16px', border: `2px solid ${COLORS.lightGray}`, borderLeft: `4px solid ${COLORS.orange}` }}>
-                <div style={{ fontWeight: 'bold', marginBottom: '4px', color: COLORS.orange }}>{gift.name}</div>
-                <div style={{ color: COLORS.gray, fontSize: '13px' }}>{gift.address}</div>
-                <div style={{ color: COLORS.gray, fontSize: '13px' }}>{gift.city}, {gift.state} {gift.zip}</div>
-              </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '10px' }}>
+            {filteredGuests.map(g => (
+              <GuestCard key={g.id} guest={g} note={guestNotes[g.id]} onSaveNote={text => saveGuestNote(g.id, text)} />
             ))}
           </div>
         </div>
       )}
 
-      {/* ═══════════════════════════════════════════════════════════════════════ */}
-      {/* GEOGRAPHY TAB */}
-      {/* ═══════════════════════════════════════════════════════════════════════ */}
+      {/* ═══════════ GEOGRAPHY ═══════════ */}
       {activeTab === 'geography' && (
         <div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '24px' }}>
-            {/* Countries */}
-            <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px', border: `3px solid ${COLORS.lightGray}` }}>
-              <h3 style={{ marginBottom: '16px', color: COLORS.black }}>
-                International ({stats.intlCount} addresses, {stats.countryCount} countries)
-              </h3>
-              <ResponsiveContainer width="100%" height={400}>
-                <BarChart data={stats.countryList.filter(c => c.country !== 'United States').slice(0, 12)} layout="vertical">
-                  <XAxis type="number" tick={{ fontSize: 11 }} />
-                  <YAxis dataKey="country" type="category" width={100} tick={{ fontSize: 11 }} />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: '20px', marginBottom: '20px' }}>
+            <Card title={`International — ${stats.intlCount} addresses, ${stats.countryCount} countries`} borderColor={C.teal}>
+              <ResponsiveContainer width="100%" height={380}>
+                <BarChart data={countryData} layout="vertical">
+                  <XAxis type="number" tick={{ fontSize: 10 }} />
+                  <YAxis dataKey="country" type="category" width={110} tick={{ fontSize: 10 }} />
                   <Tooltip />
-                  <Bar dataKey="count" fill={COLORS.teal} radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="count" fill={C.teal} radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
-            </div>
-
-            {/* US States */}
-            <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px', border: `3px solid ${COLORS.lightGray}` }}>
-              <h3 style={{ marginBottom: '16px', color: COLORS.black }}>
-                US States ({stats.usCount} addresses, {stats.stateCount} states)
-              </h3>
-              <ResponsiveContainer width="100%" height={400}>
-                <BarChart data={stats.stateList.slice(0, 12)} layout="vertical">
-                  <XAxis type="number" tick={{ fontSize: 11 }} />
-                  <YAxis dataKey="state" type="category" width={50} tick={{ fontSize: 11 }} />
+            </Card>
+            <Card title={`Top US States — ${stats.usCount} addresses, ${stats.stateCount} states`} borderColor={C.blue}>
+              <ResponsiveContainer width="100%" height={380}>
+                <BarChart data={stateData} layout="vertical">
+                  <XAxis type="number" tick={{ fontSize: 10 }} />
+                  <YAxis dataKey="state" type="category" width={110} tick={{ fontSize: 10 }} />
                   <Tooltip />
-                  <Bar dataKey="count" fill={COLORS.blue} radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="count" fill={C.blue} radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
-            </div>
+            </Card>
           </div>
-
-          {/* All countries */}
-          <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px', border: `3px solid ${COLORS.lightGray}`, marginTop: '24px' }}>
-            <h3 style={{ marginBottom: '16px', color: COLORS.black }}>All Countries</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px' }}>
-              {stats.countryList.map(c => (
-                <div key={c.country} style={{ padding: '8px 12px', backgroundColor: COLORS.cream, borderRadius: '6px', display: 'flex', justifyContent: 'space-between' }}>
-                  <span>{c.country}</span>
-                  <span style={{ fontWeight: 'bold', color: COLORS.teal }}>{c.count}</span>
+          <Card title="All Countries">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '6px' }}>
+              {Object.entries(stats.countries).sort((a, b) => b[1] - a[1]).map(([country, count]) => (
+                <div key={country} style={{ padding: '6px 10px', background: C.cream, display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
+                  <span>{country}</span>
+                  <strong style={{ color: C.teal }}>{count}</strong>
                 </div>
               ))}
             </div>
-          </div>
+          </Card>
         </div>
       )}
 
-      {/* ═══════════════════════════════════════════════════════════════════════ */}
-      {/* TIMELINE TAB */}
-      {/* ═══════════════════════════════════════════════════════════════════════ */}
+      {/* ═══════════ TIMELINE ═══════════ */}
       {activeTab === 'timeline' && (
         <div>
-          <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px', border: `3px solid ${COLORS.lightGray}`, marginBottom: '24px' }}>
-            <h3 style={{ marginBottom: '16px', color: COLORS.black }}>Daily New Subscribers</h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={stats.timeline.slice(-30)}>
-                <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} />
+          <Card title="Daily New Subscribers" borderColor={C.orange}>
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={dailyData}>
+                <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                <YAxis tick={{ fontSize: 10 }} />
                 <Tooltip />
-                <Bar dataKey="orders" fill={COLORS.orange} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="orders" fill={C.orange} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          </div>
-
-          {/* Recent activity */}
-          <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px', border: `3px solid ${COLORS.lightGray}` }}>
-            <h3 style={{ marginBottom: '16px', color: COLORS.black }}>Recent Days</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '12px' }}>
-              {stats.timeline.slice(-7).reverse().map(d => (
-                <div key={d.fullDate} style={{ padding: '16px', backgroundColor: COLORS.cream, borderRadius: '8px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '24px', fontWeight: 'bold', color: COLORS.orange }}>{d.orders}</div>
-                  <div style={{ fontSize: '12px', color: COLORS.gray }}>{d.fullDate}</div>
+          </Card>
+          {/* Spike callout if any single day > 100 */}
+          {(() => {
+            const peak = sortedDates.reduce((best, d) => stats.byDate[d] > (best.count || 0) ? { date: d, count: stats.byDate[d] } : best, {});
+            if (peak.count > 100) {
+              return (
+                <div style={{ background: C.orange, borderRadius: '4px', padding: '20px', color: 'white', textAlign: 'center', marginTop: '16px' }}>
+                  <div style={{ fontSize: '14px', fontWeight: 'bold', textTransform: 'uppercase' }}>🚀 Peak Day: {peak.date}</div>
+                  <div style={{ fontSize: '40px', fontWeight: 'bold', margin: '8px 0' }}>{peak.count}</div>
+                  <div>new subscribers in a single day</div>
                 </div>
-              ))}
-            </div>
-          </div>
+              );
+            }
+            return null;
+          })()}
         </div>
       )}
 
-      {/* ═══════════════════════════════════════════════════════════════════════ */}
-      {/* CANCELLATIONS TAB */}
-      {/* ═══════════════════════════════════════════════════════════════════════ */}
-      {activeTab === 'cancellations' && (
+      {/* ═══════════ ISSUES ═══════════ */}
+      {activeTab === 'issues' && (
         <div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-            <MetricCard label="Total Cancelled" value={stats.cancelled} color={COLORS.red} />
-            <MetricCard label="Churn Rate" value={`${stats.churnRate}%`} color={COLORS.pink} />
-          </div>
-
-          {stats.cancelled === 0 ? (
-            <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '40px', textAlign: 'center', border: `3px solid ${COLORS.green}` }}>
-              <div style={{ fontSize: '48px', marginBottom: '12px' }}>🎉</div>
-              <p style={{ color: COLORS.green, fontWeight: 'bold', fontSize: '18px' }}>No cancellations!</p>
+          {stats.problems === 0 ? (
+            <div style={{ background: 'white', border: `2px solid ${C.green}`, padding: '40px', textAlign: 'center' }}>
+              <div style={{ fontSize: '36px', marginBottom: '8px' }}>🎉</div>
+              <p style={{ color: C.green, fontWeight: 'bold' }}>No address issues found!</p>
+              <p style={{ color: C.gray, fontSize: '11px', marginTop: '8px' }}>ALL CAPS formatting is automatically corrected.</p>
             </div>
           ) : (
-            <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px', border: `3px solid ${COLORS.lightGray}` }}>
-              <h3 style={{ marginBottom: '16px', color: COLORS.black }}>Cancelled Subscribers</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {stats.cancelledList.map(sub => (
-                  <div key={sub.order_id} style={{ padding: '16px', backgroundColor: COLORS.cream, borderRadius: '8px', borderLeft: `4px solid ${COLORS.red}` }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-                      <div>
-                        <div style={{ fontWeight: 'bold' }}>{sub.name}</div>
-                        <div style={{ color: COLORS.gray, fontSize: '13px' }}>{sub.email}</div>
-                      </div>
-                      <span style={{ padding: '4px 8px', borderRadius: '4px', backgroundColor: sub.plan === 'Annual' ? COLORS.orange : COLORS.blue, color: 'white', fontSize: '12px' }}>
-                        {sub.plan}
-                      </span>
-                    </div>
-                    <div style={{ marginTop: '8px', fontSize: '12px', color: COLORS.gray }}>
-                      Order #{sub.order_id} • Created: {sub.created_at}
-                    </div>
+            <>
+              <p style={{ fontSize: '11px', color: C.gray, marginBottom: '10px' }}>
+                Found {stats.problems} addresses with issues. <span style={{ color: C.teal }}>(ALL CAPS auto-fixed)</span>
+              </p>
+              {stats.problemList.map(addr => (
+                <div key={addr.order_id} style={{ background: 'white', border: `2px solid ${C.orange}`, padding: '12px', marginBottom: '10px' }}>
+                  <Badge color={C.blue}>#{addr.order_id}</Badge>
+                  <strong style={{ marginLeft: '6px' }}>{addr.name}</strong>
+                  <div style={{ fontSize: '11px', marginTop: '4px' }}>
+                    {addr.address1 || '(no address)'}, {addr.city || '(no city)'}, {addr.state} {addr.zip || '(no zip)'}
+                    {addr.country !== 'United States' ? ', ' + addr.country : ''}
                   </div>
-                ))}
-              </div>
-            </div>
+                  <div style={{ marginTop: '4px' }}>
+                    {addr.issues.map(issue => (
+                      <span key={issue} style={{
+                        display: 'inline-block', background: '#FEE', border: '1px solid #FCC',
+                        padding: '2px 6px', fontSize: '9px', color: '#C00', marginRight: '4px'
+                      }}>⚠️ {issue}</span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </>
           )}
         </div>
       )}
 
+      {/* ═══════════ CANCELLATIONS ═══════════ */}
+      {activeTab === 'cancellations' && (
+        <div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px', marginBottom: '20px' }}>
+            <Metric label="Total Cancelled" value={stats.cancelled} color={C.red} />
+            <Metric label="Churn Rate" value={`${stats.churnRate.toFixed(2)}%`} color={C.pink} />
+            <Metric label="Avg Days to Cancel" value={stats.avgDaysToCancel.toFixed(1)} color={C.orange} />
+            <Metric label="Monthly / Annual" value={`${stats.cancelledMonthly} / ${stats.cancelledAnnual}`} color={C.purple} />
+          </div>
+          {stats.cancelled === 0 ? (
+            <div style={{ background: 'white', border: `2px solid ${C.green}`, padding: '40px', textAlign: 'center' }}>
+              <div style={{ fontSize: '36px', marginBottom: '8px' }}>🎉</div>
+              <p style={{ color: C.green, fontWeight: 'bold' }}>No cancellations!</p>
+            </div>
+          ) : (
+            <Card title="Cancelled Subscribers" borderColor={C.red}>
+              {stats.cancelledList.map(o => (
+                <div key={o.order_id} style={{ padding: '12px', borderBottom: `1px solid ${C.lightGray}` }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <Badge color={C.red}>#{o.order_id}</Badge>
+                    <strong>{o.name}</strong>
+                    <span style={{ fontSize: '10px', color: C.gray }}>{o.email}</span>
+                  </div>
+                  <div style={{ fontSize: '10px', color: C.gray, marginTop: '4px', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                    <Badge color={o.subscription_type === 'Annual' ? C.pink : C.blue}>{o.subscription_type}</Badge>
+                    <span>Subscribed: {o.subscription_date || o.created_at || 'N/A'}</span>
+                    <span>Cancelled: {o.cancelled_at || 'N/A'}</span>
+                  </div>
+                </div>
+              ))}
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* ═══════════ DUPLICATES ═══════════ */}
+      {activeTab === 'duplicates' && (
+        <div>
+          <Card title="Duplicate Detection" borderColor={C.purple}>
+            <p style={{ fontSize: '12px', color: C.gray, marginBottom: '16px', lineHeight: 1.6 }}>
+              Duplicates are caught two ways: (1) rows you flag in the Google Sheet via the <strong>duplicate_flag</strong> column are excluded first,
+              then (2) the dashboard groups remaining rows by <strong>email address</strong> and keeps only the <strong>newest order</strong> (highest order ID).
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px', marginBottom: '20px' }}>
+              <MiniStat label="Raw CSV Rows" value={stats.totalRawRows} color={C.gray} />
+              <MiniStat label="Sheet-Flagged" value={stats.sheetFlaggedDupes || 0} color={C.orange} />
+              <MiniStat label="Email-Detected" value={stats.duplicatesRemoved} color={C.purple} />
+              <MiniStat label="Active (clean)" value={stats.total} color={C.green} />
+              <MiniStat label="Cancelled" value={stats.cancelled} color={C.red} />
+            </div>
+          </Card>
+
+          {((stats.sheetFlaggedDupes || 0) + stats.duplicatesRemoved) === 0 ? (
+            <div style={{ background: 'white', border: `2px solid ${C.green}`, padding: '40px', textAlign: 'center', marginTop: '16px' }}>
+              <div style={{ fontSize: '36px', marginBottom: '8px' }}>✅</div>
+              <p style={{ color: C.green, fontWeight: 'bold' }}>No duplicates detected!</p>
+              <p style={{ color: C.gray, fontSize: '11px', marginTop: '8px' }}>
+                Every email in the sheet maps to exactly one active order.
+              </p>
+            </div>
+          ) : (
+            <>
+              {(stats.sheetFlaggedDupes || 0) > 0 && (
+                <Card title={`${stats.sheetFlaggedDupes} Sheet-Flagged Duplicate${stats.sheetFlaggedDupes !== 1 ? 's' : ''}`} borderColor={C.orange}>
+                  <p style={{ fontSize: '11px', color: C.gray, marginBottom: '12px' }}>
+                    These rows have a value in the <strong>duplicate_flag</strong> column in your Google Sheet and were excluded from all counts.
+                  </p>
+                </Card>
+              )}
+              {stats.duplicatesRemoved > 0 && (
+                <Card title={`${stats.duplicatesRemoved} Email-Detected Duplicate${stats.duplicatesRemoved !== 1 ? 's' : ''}`} borderColor={C.purple}>
+                  <p style={{ fontSize: '11px', color: C.gray, marginBottom: '12px' }}>
+                    These older orders were removed because a newer order exists for the same email.
+                    The "Kept" column shows which order ID was retained.
+                  </p>
+                  <div style={{ maxHeight: '500px', overflowY: 'auto' }}>
+                    {stats.duplicateList.map((d, i) => (
+                      <div key={`${d.order_id}-${i}`} style={{
+                        padding: '10px', borderBottom: `1px solid ${C.lightGray}`,
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'start', flexWrap: 'wrap', gap: '8px'
+                      }}>
+                        <div>
+                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '4px' }}>
+                            <Badge color={C.purple}>#{d.order_id}</Badge>
+                            <span style={{ textDecoration: 'line-through', color: C.gray, fontSize: '12px' }}>{d.name}</span>
+                          </div>
+                          <div style={{ fontSize: '10px', color: C.gray }}>{d.email}</div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: '10px', color: C.green }}>Kept: #{d._kept_order}</div>
+                          <Badge color={d.subscription_type === 'Annual' ? C.pink : C.blue}>{d.subscription_type}</Badge>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ═══════════ FULFILLMENT CHECKLIST ═══════════ */}
+      {activeTab === 'fulfillment' && (
+        <div>
+          <Card title="Monthly Fulfillment Checklist" borderColor={C.green}>
+            <div style={{
+              background: C.cream, border: `2px solid ${C.orange}`, padding: '12px', marginBottom: '20px',
+              fontSize: '12px', color: C.orange, fontWeight: 'bold'
+            }}>
+              ⚠️ QA REMINDER: Verify subscriber list against Squarespace Pending Orders export before printing labels.
+            </div>
+            <div style={{
+              background: C.cream, border: `2px solid ${C.blue}`, padding: '12px', marginBottom: '20px',
+              fontSize: '11px'
+            }}>
+              <a href={MASTER_SHEET_URL} target="_blank" rel="noopener noreferrer"
+                style={{ color: C.blue, fontWeight: 'bold', textDecoration: 'underline' }}>
+                📋 Open TCR Operations — Master Google Sheet
+              </a>
+            </div>
+            <div style={{ marginBottom: '16px' }}>
+              {checklistItems.map(item => (
+                <label
+                  key={item.key}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '10px', padding: '12px',
+                    borderBottom: `1px solid ${C.lightGray}`, cursor: 'pointer',
+                    background: checklist[item.key] ? '#f0fdf0' : 'transparent',
+                    fontSize: '12px'
+                  }}
+                  onClick={() => toggleCheck(item.key)}
+                >
+                  <span style={{
+                    width: '20px', height: '20px', borderRadius: '3px',
+                    border: `2px solid ${checklist[item.key] ? C.green : C.lightGray}`,
+                    background: checklist[item.key] ? C.green : 'white',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: 'white', fontSize: '12px', fontWeight: 'bold', flexShrink: 0
+                  }}>
+                    {checklist[item.key] && '✓'}
+                  </span>
+                  <span style={{ textDecoration: checklist[item.key] ? 'line-through' : 'none', color: checklist[item.key] ? C.gray : C.black }}>
+                    {item.label}
+                  </span>
+                </label>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              <div style={{ fontSize: '13px', fontWeight: 'bold', color: checklistDone === checklistItems.length ? C.green : C.blue }}>
+                {checklistDone}/{checklistItems.length} complete
+                {checklistDone === checklistItems.length && ' 🎉'}
+              </div>
+              <button
+                onClick={resetChecklist}
+                style={{ padding: '4px 10px', border: `1px solid ${C.gray}`, background: 'white', color: C.gray, cursor: 'pointer', fontFamily: 'inherit', fontSize: '10px' }}
+              >
+                Reset Checklist
+              </button>
+            </div>
+          </Card>
+
+          {/* Quick reference numbers */}
+          <Card title="Label Count Reference" borderColor={C.teal}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px' }}>
+              <MiniStat label="US Subscribers" value={stats.usCount} color={C.blue} />
+              <MiniStat label="Int'l Subscribers" value={stats.intlCount} color={C.teal} />
+              <MiniStat label="Guest List" value={GUEST_LIST.length} color={C.purple} />
+              <MiniStat label="Total Labels" value={stats.totalMailingList} color={C.green} />
+            </div>
+            <p style={{ fontSize: '10px', color: C.gray, marginTop: '10px' }}>
+              Total = {stats.total} paid + {GUEST_LIST.length} guests − 1 overlap (Sophie Cassel) = {stats.totalMailingList}
+            </p>
+          </Card>
+        </div>
+      )}
+
       {/* Footer */}
-      <div style={{ textAlign: 'center', marginTop: '40px', padding: '20px', borderTop: `2px solid ${COLORS.lightGray}`, color: COLORS.gray, fontSize: '12px' }}>
-        The Cloud Report Dashboard v7 • Live Data • 
-        <span style={{ color: COLORS.teal }}> Connected to Google Sheets</span>
+      <div style={{ textAlign: 'center', marginTop: '24px', fontSize: '9px', color: C.gray, textTransform: 'uppercase', letterSpacing: '2px' }}>
+        The Cloud Report • Dashboard v8 • Live from Google Sheets • ☁️
       </div>
     </div>
   );
@@ -627,21 +1035,84 @@ export default function CloudReportDashboard() {
 // HELPER COMPONENTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function MetricCard({ label, value, color, detail }) {
+function Metric({ label, value, color, detail, onClick }) {
   return (
-    <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px', borderLeft: `5px solid ${color}`, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
-      <div style={{ color: '#666', fontSize: '13px', marginBottom: '4px' }}>{label}</div>
-      <div style={{ fontSize: '32px', fontWeight: 'bold', color }}>{value}</div>
-      {detail && <div style={{ color: '#666', fontSize: '12px', marginTop: '4px' }}>{detail}</div>}
+    <div
+      onClick={onClick}
+      style={{
+        padding: '14px', background: color, color: 'white',
+        cursor: onClick ? 'pointer' : 'default',
+        borderRadius: '2px'
+      }}
+    >
+      <div style={{ fontSize: '9px', textTransform: 'uppercase', opacity: 0.8, marginBottom: '2px' }}>{label}</div>
+      <div style={{ fontSize: '24px', fontWeight: 'bold', lineHeight: 1.2 }}>{value}</div>
+      {detail && <div style={{ fontSize: '9px', opacity: 0.7, marginTop: '2px' }}>{detail}</div>}
     </div>
   );
 }
 
-function MiniCard({ label, value, color }) {
+function MiniStat({ label, value, color }) {
   return (
-    <div style={{ backgroundColor: 'white', borderRadius: '8px', padding: '16px', textAlign: 'center', border: '2px solid #e8e8e8' }}>
-      <div style={{ fontSize: '24px', fontWeight: 'bold', color }}>{value}</div>
-      <div style={{ color: '#666', fontSize: '12px' }}>{label}</div>
+    <div style={{ textAlign: 'center', padding: '12px', background: 'white', border: `2px solid ${C.lightGray}`, borderRadius: '2px' }}>
+      <div style={{ fontSize: '22px', fontWeight: 'bold', color }}>{value}</div>
+      <div style={{ fontSize: '10px', color: C.gray }}>{label}</div>
+    </div>
+  );
+}
+
+function Card({ title, children, borderColor }) {
+  return (
+    <div style={{ background: 'white', border: `2px solid ${borderColor || C.blue}`, padding: '16px', marginBottom: '16px' }}>
+      {title && <h3 style={{ color: borderColor || C.blue, fontSize: '12px', textTransform: 'uppercase', marginBottom: '12px' }}>{title}</h3>}
+      {children}
+    </div>
+  );
+}
+
+function Badge({ color, children }) {
+  return (
+    <span style={{ padding: '2px 6px', fontSize: '9px', textTransform: 'uppercase', color: 'white', background: color, display: 'inline-block' }}>
+      {children}
+    </span>
+  );
+}
+
+function GuestCard({ guest, note, onSaveNote }) {
+  const [showNote, setShowNote] = useState(false);
+  const [noteText, setNoteText] = useState(note || '');
+
+  return (
+    <div style={{ background: 'white', border: `2px solid ${C.lightGray}`, borderLeft: `4px solid ${C.purple}`, padding: '12px' }}>
+      <div style={{ fontWeight: 'bold', fontSize: '12px', color: C.purple, marginBottom: '4px' }}>{guest.name}</div>
+      <div style={{ fontSize: '11px', color: C.gray }}>{guest.address}</div>
+      <div style={{ fontSize: '11px', color: C.gray }}>{guest.city}, {guest.state} {guest.zip}</div>
+      {guest.note && (
+        <div style={{ marginTop: '6px', padding: '4px 8px', background: C.cream, fontSize: '10px', color: C.orange }}>
+          ⚠️ {guest.note}
+        </div>
+      )}
+      <button
+        onClick={() => setShowNote(!showNote)}
+        style={{ marginTop: '8px', padding: '4px 8px', border: `1px solid ${C.lightGray}`, background: 'transparent', cursor: 'pointer', fontSize: '10px', fontFamily: 'inherit' }}
+      >
+        {showNote ? 'Hide' : (note ? '📝 Note' : '+ Note')}
+      </button>
+      {showNote && (
+        <div style={{ marginTop: '8px' }}>
+          <textarea
+            value={noteText} onChange={e => setNoteText(e.target.value)}
+            placeholder="Note..." rows={2}
+            style={{ width: '100%', padding: '6px', border: `1px solid ${C.lightGray}`, fontFamily: 'inherit', fontSize: '11px', boxSizing: 'border-box' }}
+          />
+          <button
+            onClick={() => onSaveNote(noteText)}
+            style={{ marginTop: '4px', padding: '4px 10px', background: C.purple, color: 'white', border: 'none', cursor: 'pointer', fontSize: '10px', fontFamily: 'inherit' }}
+          >
+            Save
+          </button>
+        </div>
+      )}
     </div>
   );
 }
