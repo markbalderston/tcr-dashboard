@@ -139,7 +139,7 @@ function getSubDate(row) {
 }
 
 function processCSV(csvText, guestCount = FALLBACK_GUEST_LIST.length) {
-  const result = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+  const result = Papa.parse(csvText, { header: true, skipEmptyLines: true, transformHeader: h => h.trim() });
   if (result.errors.length > 0 && result.data.length === 0) {
     throw new Error('Could not parse CSV: ' + result.errors[0].message);
   }
@@ -147,13 +147,15 @@ function processCSV(csvText, guestCount = FALLBACK_GUEST_LIST.length) {
   // Log actual column names for debugging column mismatches
   if (result.data.length > 0) {
     const cols = Object.keys(result.data[0]);
-    console.log('[TCR Dashboard] CSV columns:', cols.join(', '));
+    console.log('[TCR Dashboard] CSV columns:', JSON.stringify(cols));
     const zipCols = cols.filter(c => /zip|postal|post.?code/i.test(c));
-    const stateCols = cols.filter(c => /^state$|^region$|^province$/i.test(c));
-    const addrCols = cols.filter(c => /address|street|addr/i.test(c));
-    console.log('[TCR Dashboard] Detected zip columns:', zipCols.join(', ') || '(none — will check zip, postal_code, etc.)');
-    console.log('[TCR Dashboard] Detected state columns:', stateCols.join(', ') || '(none)');
-    console.log('[TCR Dashboard] Detected address columns:', addrCols.join(', ') || '(none)');
+    console.log('[TCR Dashboard] Detected zip columns:', zipCols.length ? JSON.stringify(zipCols) : '(none found!)');
+    // Sample first 3 rows to see what zip data looks like
+    const sample = result.data.slice(0, 3).map(r => ({
+      name: r.name, zip: r.zip, postal_code: r.postal_code, zip_code: r.zip_code,
+      allZipLike: Object.entries(r).filter(([k]) => /zip|postal|post.?code/i.test(k))
+    }));
+    console.log('[TCR Dashboard] Sample zip data:', JSON.stringify(sample, null, 2));
   }
 
   // Clean rows — normalize plan column → subscription_type
@@ -246,7 +248,21 @@ function processCSV(csvText, guestCount = FALLBACK_GUEST_LIST.length) {
   };
 
   // Normalize zip column — Squarespace/Zapier may name it zip, Zip, postal_code, zip_code, etc.
-  const getZip = (row) => (row.zip || row.Zip || row.postal_code || row.zip_code || row.postalCode || row['Zip/Postal Code'] || row['zip/postal code'] || '').toString().trim();
+  // Also scans all column names for any zip/postal match as a fallback
+  const getZip = (row) => {
+    // Try explicit known names first
+    const explicit = row.zip || row.Zip || row.ZIP || row.postal_code || row.zip_code || row.postalCode || 
+      row['Zip/Postal Code'] || row['zip/postal code'] || row['Postal Code'] || row['postal code'] ||
+      row['Zip Code'] || row['zip code'] || row.postcode || row.Postcode || row.PostCode || '';
+    if (explicit) return explicit.toString().trim();
+    // Fallback: scan all keys for anything zip/postal-like
+    for (const [key, val] of Object.entries(row)) {
+      if (/zip|postal|postcode/i.test(key) && val && val.toString().trim()) {
+        return val.toString().trim();
+      }
+    }
+    return '';
+  };
   // Normalize state column
   const getState = (row) => (row.state || row.State || row.region || row.Region || row.province || row.Province || '').toString().trim();
   // Normalize address columns
@@ -408,7 +424,9 @@ function processCSV(csvText, guestCount = FALLBACK_GUEST_LIST.length) {
       duplicateList: duplicates,
       guestListCount: guestCount,
       totalMailingList: active.length + guestCount - 1, // Sophie Cassel overlap
-      lastUpdated: new Date().toISOString()
+      lastUpdated: new Date().toISOString(),
+      _csvColumns: result.data.length > 0 ? Object.keys(result.data[0]).join(', ') : '(no data)',
+      _stateList: Object.keys(usStates).sort().join(', ')
     },
     subscribers: active
   };
@@ -973,6 +991,12 @@ export default function CloudReportDashboard() {
                   <Bar dataKey="count" fill={C.blue} radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
+              {stats._stateList && (
+                <details style={{ fontSize: '10px', color: C.gray, marginTop: '10px', cursor: 'pointer' }}>
+                  <summary>🔍 All {stats.stateCount} state/territory values in data</summary>
+                  <p style={{ fontSize: '10px', marginTop: '4px', lineHeight: 1.6 }}>{stats._stateList}</p>
+                </details>
+              )}
             </Card>
           </div>
           <Card title="All Countries">
@@ -1129,6 +1153,14 @@ export default function CloudReportDashboard() {
               <p style={{ fontSize: '11px', color: C.gray, marginBottom: '10px' }}>
                 Found {stats.problems} addresses with issues. <span style={{ color: C.teal }}>(ALL CAPS auto-fixed)</span>
               </p>
+              {stats._csvColumns && (
+                <details style={{ fontSize: '10px', color: C.gray, marginBottom: '10px', cursor: 'pointer' }}>
+                  <summary>🔍 Debug: CSV column names</summary>
+                  <pre style={{ fontSize: '9px', background: '#f5f5f5', padding: '8px', marginTop: '4px', overflowX: 'auto', whiteSpace: 'pre-wrap' }}>
+                    {stats._csvColumns}
+                  </pre>
+                </details>
+              )}
               {stats.problemList.map(addr => (
                 <div key={addr.order_id} style={{ background: 'white', border: `2px solid ${C.orange}`, padding: '12px', marginBottom: '10px' }}>
                   <Badge color={C.blue}>#{addr.order_id}</Badge>
