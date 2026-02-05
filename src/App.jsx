@@ -154,11 +154,51 @@ function processCSV(csvText, guestCount = FALLBACK_GUEST_LIST.length) {
     return 'Other';
   };
 
+  // Normalize country — handles ISO codes, abbreviations, and full names
+  const normalizeCountry = (raw) => {
+    const c = (raw || '').trim().toUpperCase();
+    // US variations
+    if (c === 'US' || c === 'USA' || c === 'UNITED STATES' || c === 'UNITED STATES OF AMERICA') return 'United States';
+    // UK variations
+    if (c === 'GB' || c === 'UK' || c === 'GREAT BRITAIN' || c === 'UNITED KINGDOM' || c === 'ENGLAND' || c === 'SCOTLAND' || c === 'WALES') return 'United Kingdom';
+    // Canada
+    if (c === 'CA' || c === 'CAN' || c === 'CANADA') return 'Canada';
+    // Australia
+    if (c === 'AU' || c === 'AUS' || c === 'AUSTRALIA') return 'Australia';
+    // Common ISO codes
+    if (c === 'FR' || c === 'FRANCE') return 'France';
+    if (c === 'DE' || c === 'GERMANY') return 'Germany';
+    if (c === 'NZ' || c === 'NEW ZEALAND') return 'New Zealand';
+    if (c === 'IE' || c === 'IRELAND') return 'Ireland';
+    if (c === 'NL' || c === 'NETHERLANDS') return 'Netherlands';
+    if (c === 'SG' || c === 'SINGAPORE') return 'Singapore';
+    if (c === 'AT' || c === 'AUSTRIA') return 'Austria';
+    if (c === 'NO' || c === 'NORWAY') return 'Norway';
+    if (c === 'SE' || c === 'SWEDEN') return 'Sweden';
+    if (c === 'DK' || c === 'DENMARK') return 'Denmark';
+    if (c === 'CH' || c === 'SWITZERLAND') return 'Switzerland';
+    if (c === 'MX' || c === 'MEXICO') return 'Mexico';
+    if (c === 'PL' || c === 'POLAND') return 'Poland';
+    if (c === 'IS' || c === 'ICELAND') return 'Iceland';
+    if (c === 'IT' || c === 'ITALY') return 'Italy';
+    if (c === 'PT' || c === 'PORTUGAL') return 'Portugal';
+    if (c === 'BE' || c === 'BELGIUM') return 'Belgium';
+    if (c === 'PH' || c === 'PHILIPPINES') return 'Philippines';
+    if (c === 'HR' || c === 'CROATIA') return 'Croatia';
+    if (c === 'HU' || c === 'HUNGARY') return 'Hungary';
+    if (c === 'PK' || c === 'PAKISTAN') return 'Pakistan';
+    // If empty or looks like a postal code (contains numbers), default to US
+    if (!c || /\d/.test(c)) return 'United States';
+    // Return title-cased version of whatever we got
+    return raw.trim().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+  };
+
   const allRows = result.data
     .filter(row => row.order_id && row.name)
     .map(row => ({
       ...row,
       subscription_type: normalizePlan(row),
+      country: normalizeCountry(row.country),
       city: toTitleCase(row.city),
       address1: toTitleCase(row.address1),
       address2: toTitleCase(row.address2),
