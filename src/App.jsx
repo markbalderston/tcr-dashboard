@@ -157,38 +157,78 @@ function processCSV(csvText, guestCount = FALLBACK_GUEST_LIST.length) {
   // Normalize country — handles ISO codes, abbreviations, and full names
   const normalizeCountry = (raw) => {
     const c = (raw || '').trim().toUpperCase();
-    // US variations
+    // US variations and territories (count as US for mailing purposes)
     if (c === 'US' || c === 'USA' || c === 'UNITED STATES' || c === 'UNITED STATES OF AMERICA') return 'United States';
+    if (c === 'PR' || c === 'PUERTO RICO') return 'United States'; // US territory
+    if (c === 'GU' || c === 'GUAM') return 'United States'; // US territory
+    if (c === 'VI' || c === 'VIRGIN ISLANDS' || c === 'US VIRGIN ISLANDS') return 'United States'; // US territory
+    if (c === 'AS' || c === 'AMERICAN SAMOA') return 'United States'; // US territory
+    if (c === 'MP' || c === 'NORTHERN MARIANA ISLANDS') return 'United States'; // US territory
     // UK variations
-    if (c === 'GB' || c === 'UK' || c === 'GREAT BRITAIN' || c === 'UNITED KINGDOM' || c === 'ENGLAND' || c === 'SCOTLAND' || c === 'WALES') return 'United Kingdom';
+    if (c === 'GB' || c === 'UK' || c === 'GREAT BRITAIN' || c === 'UNITED KINGDOM' || c === 'ENGLAND' || c === 'SCOTLAND' || c === 'WALES' || c === 'NORTHERN IRELAND') return 'United Kingdom';
     // Canada
     if (c === 'CA' || c === 'CAN' || c === 'CANADA') return 'Canada';
     // Australia
     if (c === 'AU' || c === 'AUS' || c === 'AUSTRALIA') return 'Australia';
-    // Common ISO codes
+    // Common ISO codes - Europe
     if (c === 'FR' || c === 'FRANCE') return 'France';
     if (c === 'DE' || c === 'GERMANY') return 'Germany';
-    if (c === 'NZ' || c === 'NEW ZEALAND') return 'New Zealand';
-    if (c === 'IE' || c === 'IRELAND') return 'Ireland';
-    if (c === 'NL' || c === 'NETHERLANDS') return 'Netherlands';
-    if (c === 'SG' || c === 'SINGAPORE') return 'Singapore';
+    if (c === 'NL' || c === 'NETHERLANDS' || c === 'HOLLAND') return 'Netherlands';
+    if (c === 'BE' || c === 'BELGIUM') return 'Belgium';
     if (c === 'AT' || c === 'AUSTRIA') return 'Austria';
-    if (c === 'NO' || c === 'NORWAY') return 'Norway';
-    if (c === 'SE' || c === 'SWEDEN') return 'Sweden';
-    if (c === 'DK' || c === 'DENMARK') return 'Denmark';
     if (c === 'CH' || c === 'SWITZERLAND') return 'Switzerland';
-    if (c === 'MX' || c === 'MEXICO') return 'Mexico';
-    if (c === 'PL' || c === 'POLAND') return 'Poland';
-    if (c === 'IS' || c === 'ICELAND') return 'Iceland';
+    if (c === 'ES' || c === 'SPAIN') return 'Spain';
     if (c === 'IT' || c === 'ITALY') return 'Italy';
     if (c === 'PT' || c === 'PORTUGAL') return 'Portugal';
-    if (c === 'BE' || c === 'BELGIUM') return 'Belgium';
-    if (c === 'PH' || c === 'PHILIPPINES') return 'Philippines';
+    if (c === 'IE' || c === 'IRELAND') return 'Ireland';
+    if (c === 'SE' || c === 'SWEDEN') return 'Sweden';
+    if (c === 'NO' || c === 'NORWAY') return 'Norway';
+    if (c === 'DK' || c === 'DENMARK') return 'Denmark';
+    if (c === 'FI' || c === 'FINLAND') return 'Finland';
+    if (c === 'PL' || c === 'POLAND') return 'Poland';
+    if (c === 'IS' || c === 'ICELAND') return 'Iceland';
     if (c === 'HR' || c === 'CROATIA') return 'Croatia';
     if (c === 'HU' || c === 'HUNGARY') return 'Hungary';
+    if (c === 'CZ' || c === 'CZECH REPUBLIC' || c === 'CZECHIA') return 'Czech Republic';
+    if (c === 'GR' || c === 'GREECE') return 'Greece';
+    if (c === 'RO' || c === 'ROMANIA') return 'Romania';
+    if (c === 'LT' || c === 'LITHUANIA') return 'Lithuania';
+    if (c === 'LV' || c === 'LATVIA') return 'Latvia';
+    if (c === 'EE' || c === 'ESTONIA') return 'Estonia';
+    if (c === 'SK' || c === 'SLOVAKIA') return 'Slovakia';
+    if (c === 'SI' || c === 'SLOVENIA') return 'Slovenia';
+    if (c === 'BG' || c === 'BULGARIA') return 'Bulgaria';
+    if (c === 'AL' || c === 'ALBANIA') return 'Albania';
+    if (c === 'RS' || c === 'SERBIA') return 'Serbia';
+    if (c === 'LU' || c === 'LUXEMBOURG') return 'Luxembourg';
+    if (c === 'MT' || c === 'MALTA') return 'Malta';
+    if (c === 'CY' || c === 'CYPRUS') return 'Cyprus';
+    // Asia-Pacific
+    if (c === 'NZ' || c === 'NEW ZEALAND') return 'New Zealand';
+    if (c === 'SG' || c === 'SINGAPORE') return 'Singapore';
+    if (c === 'HK' || c === 'HONG KONG') return 'Hong Kong';
+    if (c === 'JP' || c === 'JAPAN') return 'Japan';
+    if (c === 'KR' || c === 'SOUTH KOREA' || c === 'KOREA') return 'South Korea';
+    if (c === 'TW' || c === 'TAIWAN') return 'Taiwan';
+    if (c === 'MY' || c === 'MALAYSIA') return 'Malaysia';
+    if (c === 'TH' || c === 'THAILAND') return 'Thailand';
+    if (c === 'PH' || c === 'PHILIPPINES') return 'Philippines';
+    if (c === 'IN' || c === 'INDIA') return 'India';
     if (c === 'PK' || c === 'PAKISTAN') return 'Pakistan';
-    // If empty or looks like a postal code (contains numbers), default to US
-    if (!c || /\d/.test(c)) return 'United States';
+    if (c === 'ID' || c === 'INDONESIA') return 'Indonesia';
+    if (c === 'VN' || c === 'VIETNAM') return 'Vietnam';
+    // Americas
+    if (c === 'MX' || c === 'MEXICO') return 'Mexico';
+    if (c === 'BR' || c === 'BRAZIL') return 'Brazil';
+    if (c === 'AR' || c === 'ARGENTINA') return 'Argentina';
+    if (c === 'CL' || c === 'CHILE') return 'Chile';
+    if (c === 'CO' || c === 'COLOMBIA') return 'Colombia';
+    // Middle East / Africa
+    if (c === 'IL' || c === 'ISRAEL') return 'Israel';
+    if (c === 'AE' || c === 'UAE' || c === 'UNITED ARAB EMIRATES') return 'United Arab Emirates';
+    if (c === 'ZA' || c === 'SOUTH AFRICA') return 'South Africa';
+    // If empty, default to US (most subscribers are US-based)
+    if (!c) return 'United States';
     // Return title-cased version of whatever we got
     return raw.trim().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
   };
