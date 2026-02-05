@@ -371,8 +371,23 @@ function processCSV(csvText, guestCount = FALLBACK_GUEST_LIST.length) {
     if (!r.address1 || r.address1.trim().length < 3) issues.push('Missing address');
     if (!r.city || r.city.trim().length < 2) issues.push('Missing city');
     if (r.address1 && r.address1.length > 60) issues.push('Very long address');
-    return { ...r, issues };
+    return { ...r, issues, _rawZip: r.zip || '(empty)' };
   });
+
+  // Debug: log problem zip values
+  if (problems.length > 0) {
+    const zipIssues = problems.filter(p => p.issues.includes('Missing zip/postal code'));
+    console.log(`[TCR Dashboard] ${zipIssues.length} of ${problems.length} issues are zip-related`);
+    console.log('[TCR Dashboard] First 10 problem rows zip values:', 
+      zipIssues.slice(0, 10).map(p => `${p.name}: zip="${p._rawZip}", order=${p.order_id}`)
+    );
+    // Check if ALL zip values in the dataset are empty
+    const allZips = active.map(r => r.zip).filter(z => z && z.trim());
+    console.log(`[TCR Dashboard] Subscribers with non-empty zip: ${allZips.length} of ${active.length}`);
+    if (allZips.length > 0) {
+      console.log('[TCR Dashboard] Sample zips that DO exist:', allZips.slice(0, 5));
+    }
+  }
 
   // ─── Cancellation details ───
   const cancelledMonthly = cancelled.filter(r => r.subscription_type === 'Monthly').length;
@@ -1168,6 +1183,7 @@ export default function CloudReportDashboard() {
                   <div style={{ fontSize: '11px', marginTop: '4px' }}>
                     {addr.address1 || '(no address)'}, {addr.city || '(no city)'}, {addr.state} {addr.zip || '(no zip)'}
                     {addr.country !== 'United States' ? ', ' + addr.country : ''}
+                    {addr._rawZip && addr._rawZip !== '(empty)' && !addr.zip ? <span style={{ color: C.orange }}> [raw: "{addr._rawZip}"]</span> : null}
                   </div>
                   <div style={{ marginTop: '4px' }}>
                     {addr.issues.map(issue => (
