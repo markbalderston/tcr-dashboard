@@ -144,6 +144,18 @@ function processCSV(csvText, guestCount = FALLBACK_GUEST_LIST.length) {
     throw new Error('Could not parse CSV: ' + result.errors[0].message);
   }
 
+  // Log actual column names for debugging column mismatches
+  if (result.data.length > 0) {
+    const cols = Object.keys(result.data[0]);
+    console.log('[TCR Dashboard] CSV columns:', cols.join(', '));
+    const zipCols = cols.filter(c => /zip|postal|post.?code/i.test(c));
+    const stateCols = cols.filter(c => /^state$|^region$|^province$/i.test(c));
+    const addrCols = cols.filter(c => /address|street|addr/i.test(c));
+    console.log('[TCR Dashboard] Detected zip columns:', zipCols.join(', ') || '(none — will check zip, postal_code, etc.)');
+    console.log('[TCR Dashboard] Detected state columns:', stateCols.join(', ') || '(none)');
+    console.log('[TCR Dashboard] Detected address columns:', addrCols.join(', ') || '(none)');
+  }
+
   // Clean rows — normalize plan column → subscription_type
   // Sheet column is "plan" with values like "Monthly", "The Cloud Report - Monthly",
   // "The Cloud Report - Annual", or multi-product combos containing those.
@@ -233,15 +245,25 @@ function processCSV(csvText, guestCount = FALLBACK_GUEST_LIST.length) {
     return raw.trim().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
   };
 
+  // Normalize zip column — Squarespace/Zapier may name it zip, Zip, postal_code, zip_code, etc.
+  const getZip = (row) => (row.zip || row.Zip || row.postal_code || row.zip_code || row.postalCode || row['Zip/Postal Code'] || row['zip/postal code'] || '').toString().trim();
+  // Normalize state column
+  const getState = (row) => (row.state || row.State || row.region || row.Region || row.province || row.Province || '').toString().trim();
+  // Normalize address columns
+  const getAddr1 = (row) => (row.address1 || row.Address1 || row.address || row.Address || row['address_1'] || row['Address 1'] || row['Street Address'] || '').toString().trim();
+  const getAddr2 = (row) => (row.address2 || row.Address2 || row['address_2'] || row['Address 2'] || row.unit || row.Unit || row.apt || row.Apt || '').toString().trim();
+
   const allRows = result.data
     .filter(row => row.order_id && row.name)
     .map(row => ({
       ...row,
+      zip: getZip(row),  // normalize zip into a consistent field
+      state: getState(row),
+      address1: toTitleCase(getAddr1(row)),
+      address2: toTitleCase(getAddr2(row)),
       subscription_type: normalizePlan(row),
       country: normalizeCountry(row.country),
-      city: toTitleCase(row.city),
-      address1: toTitleCase(row.address1),
-      address2: toTitleCase(row.address2),
+      city: toTitleCase(row.city || row.City || ''),
       _email_key: (row.email || '').trim().toLowerCase()
     }));
 
@@ -942,7 +964,7 @@ export default function CloudReportDashboard() {
                 </BarChart>
               </ResponsiveContainer>
             </Card>
-            <Card title={`Top US States — ${stats.usCount} addresses, ${stats.stateCount} states`} borderColor={C.blue}>
+            <Card title={`Top US States — ${stats.usCount} addresses, ${stats.stateCount} states/territories`} borderColor={C.blue}>
               <ResponsiveContainer width="100%" height={380}>
                 <BarChart data={stateData} layout="vertical">
                   <XAxis type="number" tick={{ fontSize: 10 }} />
